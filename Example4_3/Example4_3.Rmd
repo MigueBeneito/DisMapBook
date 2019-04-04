@@ -202,3 +202,5 @@ plot(VR.cart, col = colors[as.numeric(cut(ResulRE$mean$sSMR, 100 * c(-0.1, 1/1.5
 title("Random effects model", cex = 0.75)
 legend(x = "bottomright", fill = colors[7:1], legend = c(">150", "125-150", "110-125", "91-110", "80-91", "66-80", "<66"), cex = 0.75, inset = 0.03) 
 ```
+
+

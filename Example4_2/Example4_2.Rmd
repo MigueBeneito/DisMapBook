@@ -50,10 +50,10 @@ plot(VR.cart, col = colors[as.numeric(cut(SMR.muni, 100 * c(-0.1, 1/1.5, 1/1.25,
 title("SMR", cex = 0.75)
 legend(x = "bottomright", fill = colors[7:1], legend = c(">150", "125-150", "110-125", "91-110", "80-91", "66-80", "<66"), cex = 0.75, inset = 0.03)
 
-
-plot(VR.cart, col = colors[as.numeric(cut(Pop.muni, c(0, quantile(Pop.muni, (1:6)/7), 1e+07)))])
+colors2<-brewer.pal(7,"Oranges")
+plot(VR.cart, col = colors2[as.numeric(cut(Pop.muni, c(0, quantile(Pop.muni, (1:6)/7), 1e+07)))])
 title("Population", cex = 0.75)
-legend(x = "bottomright", fill = colors[7:1], legend = c("High", "", "", "", "", "", "Low"), cex = 0.75, inset = 0.03)
+legend(x = "bottomright", fill = colors2[7:1], legend = c("High", "", "", "", "", "", "Low"), cex = 0.75, inset = 0.03)
 ```
 
 ## Population in the municipalities of high and low risks
