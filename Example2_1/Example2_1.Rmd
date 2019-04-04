@@ -1,0 +1,138 @@
+---
+title: "Example 2.1"
+subtitle: "Disease mapping: from foundations to multidimensional modeling"
+author: Martinez-Beneito M.A. and Botella-Rocamora P.
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This document reproduces the analysis made at Example 2.1 of the book: "Disease mapping: from foundations to multidimensional modeling" by Martinez-Beneito M.A. and Botella-Rocamora P., published by CRC press in 2019. You can watch the analysis made with full detail at this pdf document, or even execute it if you want with the material available at <https://github.com/MigueBeneito/DMBook>. Anyway, this pdf file should be enough for following most of the details of the analysis made for this example.
+
+The statistical analysis below has been run in `R`, by additionally using the library `Rmarkdown`, so be sure that you have this software installed if you want to reproduce by yourself the content of this document. In that case we advise you to download first the annex material at <https://github.com/MigueBeneito/DMBook>, open with `Rstudio` the corresponding `.Rproj` file that you will find at the folder corresponding to this example and compile the corresponding `.Rmd` document. This will allow you to reproduce the whole statistical analysis below.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, width = 80, tidy = TRUE, tidy.opts = list(width.cutoff = 70))
+set.seed(1)
+```
+
+## Libraries and data loading
+```{r libraries and data loading}
+#Libraries loading
+#-----------------
+
+#library for numerical integration
+if(!require(cubature)){install.packages("cubature");library(cubature)}
+
+#Data loading
+#------------
+load("../Data/OralCancerTimeTrends.RData")
+```
+
+## Data preparation and plotting
+```{r data preparation and plotting}
+#data preparation
+#----------------
+year = 1991:2011
+year.centered = year - mean(year)
+
+rates = 100000 * O / Pop
+
+#data plotting
+#-------------
+plot(year, rates, xlab = "Year", ylab = "Mortality rate (per 100,000 people)", main = "Mouth and oral cavity cancer mortality")
+```
+
+# Frequentist analysis
+```{r frequentist analysis}
+# Linear model
+RateVsYear = lm(rates ~ year.centered)
+
+# Summary for the linear model
+summary(RateVsYear)
+
+# Confidence intervals for the parameters in the linear model
+confint(RateVsYear)
+```
+
+# Bayesian analysis
+
+## Computation of the posterior distribution of the parameters in the model
+```{r}
+# Full posterior distribution without the unknown integration constant
+post.full = function(y, x, beta1, beta2, sigma, sd.beta, sigma.up) {
+    sigma^(-length(y)) * (sigma < sigma.up) * exp(-0.5 * ((beta1^2 + beta2^2)/(sd.beta^2) + sum((y - beta1 - beta2 * x)^2)/(sigma^2)))
+}
+
+# posterior distribution as a function of a single argument, as required for the numerical integration function adaptIntegrate
+posterior = function(argum) {
+    post.full(rates, year.centered, argum[1], argum[2], argum[3], 1000, 1000)
+}
+
+# Integral of the full posterior distribution without integration constant as defined above.
+total = hcubature(posterior, lowerLimit = c(6.8, -0.25, 0.3), upperLimit = c(8.7, 0, 1.8))$integral
+
+# posterior distribution for beta1 given the rest of parameters
+post.beta1 = function(beta1, other) {
+    posterior(c(beta1, other[1], other[2]))
+}
+# posterior distribution for beta2 given the rest of parameters
+post.beta2 = function(beta2, other) {
+    posterior(c(other[1], beta2, other[2]))
+}
+# posterior distribution for sigma given the rest of parameters
+post.sigma = function(sigma, other) {
+    posterior(c(other[1], other[2], sigma))
+}
+
+# posterior densities for a grid of values for beta1, beta2 and sigma
+#--------------------------------------------------------------------
+
+# grid of values
+range.beta1 = 6.8 + (1:100) * 1.9/100
+range.beta2 = -0.25 + (1:100) * 0.25/100
+range.sigma = 0.3 + (1:100) * 1.5/100
+
+# posterior densities
+dbeta1 = vector()
+dbeta2 = vector()
+dsigma = vector()
+
+for (i in 1:100) {
+    dbeta1[i] = hcubature(post.beta1, beta1 = range.beta1[i], lowerLimit = c(-0.25, 0.3), upperLimit = c(0, 1.8))$integral/total
+    dbeta2[i] = hcubature(post.beta2, beta2 = range.beta2[i], lowerLimit = c(6.8, 0.3), upperLimit = c(8.7, 1.8))$integral/total
+    dsigma[i] = hcubature(post.sigma, sigma = range.sigma[i], lowerLimit = c(6.8, -0.25), upperLimit = c(8.7, 0))$integral/total
+}
+pbeta1 <- dbeta1 * (1.9/100)
+pbeta2 <- dbeta2 * (0.25/100)
+psigma <- dsigma * (1.5/100)
+```
+
+## Posterior distributions plotting
+```{r}
+par(mfrow = c(1, 3))
+plot(range.beta1, dbeta1, main = expression(beta[1]), type = "l", xlab = "", ylab = "Density")
+abline(h = 0, col = "gray")
+plot(range.beta2, dbeta2, main = expression(beta[2]), type = "l", xlab = "", ylab = "Density")
+abline(h = 0, col = "gray")
+plot(range.sigma, dsigma, main = expression(sigma), type = "l", xlab = "")
+abline(h = 0, col = "gray")
+```
+
+## Posterior summaries
+```{r posterior summaries}
+# Posterior mean for beta1
+sum(range.beta1 * pbeta1)
+# Posterior mean for beta2
+sum(range.beta2 * pbeta2)
+# Posterior mean for sigma
+sum(range.sigma * psigma)
+
+# 95% credible interval for beta1
+c(range.beta1[sum(cumsum(pbeta1) < 0.025)], range.beta1[sum(cumsum(pbeta1) < 0.975)])
+# 95% credible interval for beta2
+c(range.beta2[sum(cumsum(pbeta2) < 0.025)], range.beta2[sum(cumsum(pbeta2) < 0.975)])
+# 95% credible interval for sigma
+c(range.sigma[sum(cumsum(psigma) < 0.025)], range.sigma[sum(cumsum(psigma) < 0.975)])
+```
+

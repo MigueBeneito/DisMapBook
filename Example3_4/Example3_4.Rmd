@@ -1,0 +1,158 @@
+---
+title: "Example 3.4"
+subtitle: "Disease mapping: from foundations to multidimensional modeling"
+author: Martinez-Beneito M.A. and Botella-Rocamora P.
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This document reproduces the analysis made at Example 3.4 of the book: "Disease mapping: from foundations to multidimensional modeling" by Martinez-Beneito M.A. and Botella-Rocamora P., published by CRC press in 2019. You can watch the analysis made with full detail at this pdf document, or even execute it if you want with the material available at <https://github.com/MigueBeneito/DMBook>. Anyway, this pdf file should be enough for following most of the details of the analysis made for this example.
+
+The statistical analysis below has been run in `R`, by additionally using the library `Rmarkdown`, so be sure that you have this software installed if you want to reproduce by yourself the content of this document. In that case we advise you to download first the annex material at <https://github.com/MigueBeneito/DMBook>, open with `Rstudio` the corresponding `.Rproj` file that you will find at the folder corresponding to this example and compile the corresponding `.Rmd` document. This will allow you to reproduce the whole statistical analysis below.
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, width = 80, tidy = TRUE, tidy.opts = list(width.cutoff = 70))
+set.seed(1)
+```
+
+## Libraries and data loading
+```{r libraries and data loading, warning=FALSE, message=FALSE}
+#Libraries loading
+#-----------------
+if(!require(R2WinBUGS)){install.packages("R2WinBUGS");library(R2WinBUGS)}
+if(!require(INLA)){install.packages("INLA",repos=c(getOption("repos"), INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE);library(INLA)}
+if(!require(pbugs)){
+    if(!require(devtools)){
+        install.packages("devtools");devtools::install_github("fisabio/pbugs")
+    }
+    else{
+        install_github("fisabio/pbugs")
+    }
+}
+
+#Data loading
+#------------
+load("../Data/OralCancerTimeTrends.RData")
+```
+
+## Data preparation
+```{r data preparation}
+#covariate
+year = 1991:2011
+year.centered = year - mean(year)
+
+#rates
+rate = 1e+05 * O/Pop
+
+```
+
+## INLA call to splines model with default priors
+```{r INLA call with default priors, warning=FALSE}
+# basis of functions of 9 elements
+base9 = matrix(nrow = 21, ncol = 9)
+for (j in 1:9) {
+    base9[, j] = dnorm(1:21, 1 + j * 2, 2)
+}
+
+# INLA call
+data = data.frame(rate = rate, year = year - 2001, id.node = 1:21)
+form1 = rate ~ year + f(id.node, model = "z", Z = base9)
+result1 = inla(form1, data = data, control.compute = list(dic = TRUE))
+
+# results summary
+summary(result1)
+```
+
+## WinBUGS call to random effects splines model
+```{r WinBUGS splines model}
+#WinBUGS model
+model.random = function(){
+	for(i in 1:n){
+		rate[i] ~ dnorm(mu[i],tau.rate)
+		mu[i] <- beta[1]+beta[2]*year[i]+inprod2(base[i,],gamma[])
+	}
+	for(i in 1:nBase){
+		gamma[i] ~ dnorm(0,tau.random)
+	}
+	beta[1] ~ dflat()
+	beta[2] ~ dflat()
+
+	tau.rate <- pow(sd.rate,-2)
+	tau.random <- pow(sd.random,-2)
+	sd.rate ~ dunif(0,10)
+	sd.random ~ dunif(0,10)
+}
+
+# WinBUGS run with a basis of 9 functions
+dataWB = list(rate = rate, year = year.centered, base = base9, nBase = 9, n = 21)
+inits = function() {
+    list(beta = rnorm(2), gamma = rnorm(9))
+}
+param = c("beta", "gamma", "sd.rate", "sd.random", "mu")
+
+time.bugs = system.time(ResulWB <- bugs(data = dataWB, inits = inits, param = param, model = model.random, n.iter = 10000, n.burnin = 1000, n.thin = 9, DIC = FALSE, bugs.seed = 1))
+
+#We call WinBUGS twice, with bugs and pbugs functions, for comparing the computational performance of inla and WinBUGS
+time.pbugs = system.time(ResulWB <- pbugs(data = dataWB, inits = inits, param = param, model = model.random, n.iter = 10000, n.burnin = 1000, n.thin = 9, DIC = FALSE, bugs.seed = 1))
+```
+
+## Alternative INLA models
+```{r, warning=FALSE}
+# Gamma(2,0.00005) prior on the precision parameter of the splines coefficients
+form1.b = rate ~ year + f(id.node, model = "z", Z = base9, hyper = list(prec = list(param = c(2, 5e-05))))
+result1.b = inla(form1.b, data = data, control.compute = list(dic = TRUE))
+summary(result1.b)
+
+# Uniform prior on the standard deviation parameter of the splines coefficients
+sdunif = "expression:
+    logdens=-log_precision/2;
+    return(logdens)"
+formula2 = rate ~ year + f(id.node, model = "z", Z = base9, hyper = list(prec = list(prior = sdunif)))
+result2 <- inla(formula2, data = data, control.compute = list(dic = TRUE), control.family = list(hyper = list(prec = list(prior = sdunif))))
+summary(result2)
+
+# RW1 prior (with uniform prior on the standard deviation) for the year effect
+formula3 = rate ~ f(id.node, model = "rw1", hyper = list(theta = list(prior = sdunif)))
+result3 <- inla(formula3, data = data, control.compute = list(dic = TRUE), control.family = list(hyper = list(theta = list(prior = sdunif))))
+summary(result3)
+
+# RW2 prior (with uniform prior on the standard deviation) for the year effect
+formula4 = rate ~ f(id.node, model = "rw2", hyper = list(theta = list(prior = sdunif)))
+result4 <- inla(formula4, data = data, control.compute = list(dic = TRUE), control.family = list(hyper = list(theta = list(prior = sdunif))))
+summary(result4)
+```
+
+##Computational comparison between `INLA` and `WinBUGS`
+```{r}
+result2$cpu.used
+time.bugs
+time.pbugs
+```
+
+##DIC comparison between several INLA models
+```{r}
+#splines model
+result2$dic$dic
+#RW1
+result3$dic$dic
+#RW2
+result4$dic$dic
+```
+
+# Plot illustrating the different fits made
+```{r}
+par(mfrow = c(1, 2))
+plot(year, rate)
+lines(year, ResulWB$mean$mu)
+lines(year, result2$summary.fitted.values[, 1], lty = 2)
+lines(year, result1$summary.fitted.values[, 1], lty = 3)
+legend(1999, 9.7, lty = c(3, 1, 2), legend = c("INLA (Gamma prior)", "WinBUGS (Uniform prior)", "INLA (Uniform prior)"), cex = 0.8)
+title("Gaussian basis modelling")
+plot(year, rate)
+lines(year, result2$summary.fitted.values[, 1], lty = 2)
+lines(year, result3$summary.fitted.values[, 1], lty = 1)
+lines(year, result4$summary.fitted.values[, 1], lty = 3)
+legend(2003, 9.7, lty = c(2, 1, 3), legend = c("Gaussian basis", "RW1", "RW2"), cex = 0.8)
+title("Alternative structures")
+```

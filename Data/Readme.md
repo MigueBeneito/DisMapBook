@@ -1,0 +1,3 @@
+# Data for reproducing the examples
+
+This folder contains the annex online data for the book: "Disease mapping: from foundations to multidimensional modeling", published by CRC/Chapman & Hall and authored by Miguel A. Martinez-Beneito and Paloma Botella Rocamora. This data is used by the `.Rmd` documents in the folders named ExampleX_Y of this repository. Each different `.Rdata` file is used in one (or several) example. The objects in some of these data sets, specifically those named with a "-mod" subfix, have been slightly altered in order to preserve data privacy. Anyway, if you try to reproduce the analyses in the book with the provided data you should obtain similar to those shown there.

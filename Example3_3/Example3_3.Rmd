@@ -1,0 +1,108 @@
+---
+title: "Example 3.3"
+subtitle: "Disease mapping: from foundations to multidimensional modeling"
+author: Martinez-Beneito M.A. and Botella-Rocamora P.
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This document reproduces the analysis made at Example 3.3 of the book: "Disease mapping: from foundations to multidimensional modeling" by Martinez-Beneito M.A. and Botella-Rocamora P., published by CRC press in 2019. You can watch the analysis made with full detail at this pdf document, or even execute it if you want with the material available at <https://github.com/MigueBeneito/DMBook>. Anyway, this pdf file should be enough for following most of the details of the analysis made for this example.
+
+The statistical analysis below has been run in `R`, by additionally using the library `Rmarkdown`, so be sure that you have this software installed if you want to reproduce by yourself the content of this document. In that case we advise you to download first the annex material at <https://github.com/MigueBeneito/DMBook>, open with `Rstudio` the corresponding `.Rproj` file that you will find at the folder corresponding to this example and compile the corresponding `.Rmd` document. This will allow you to reproduce the whole statistical analysis below.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, width = 80, tidy = TRUE, tidy.opts = list(width.cutoff = 70))
+set.seed(1)
+```
+
+## Libraries and data loading
+```{r libraries and data}
+#Libraries loading
+#-----------------
+if(!require(R2WinBUGS)){install.packages("R2WinBUGS");library(R2WinBUGS)}
+if(!require(pbugs)){
+    if(!require(devtools)){
+        install.packages("devtools");devtools::install_github("fisabio/pbugs")
+    }
+    else{
+        install_github("fisabio/pbugs")
+    }
+}
+
+
+#Data loading
+#------------
+load("../Data/OralCancerTimeTrends.RData")
+```
+
+## `WinBUGS` call from `R`
+```{r WinBUGS call}
+#WinBUGS syntax for the Bayesian logistic regression model
+model.logist = function(){
+  #Data likelihood
+  for (i in 1:n){
+    O[i] ~ dbin(Prob[i],Pop[i])
+    logit(Prob[i]) <- beta[1]+beta[2]*(year[i]-mean(year[]))
+    rate[i] <- 100000*Prob[i]
+  }
+  
+  #Prior distributions
+  beta[1] ~ dflat()
+  beta[2] ~ dflat()
+  
+  #Probability of negative association (probabilities vs. years)
+  P.beta2.lower.0 <- step(-beta[2])
+}
+
+#data preparation
+year = 1987:2011
+
+data = list(n = length(O), O = O, Pop = Pop, year = year)
+
+# inits generating function
+inits = function() {
+    list(beta = rnorm(2, mean = 0, sd = 5))
+}
+
+# parameters to save
+param = c("beta", "P.beta2.lower.0", "rate")
+
+
+# WinBUGS call by means of bugs (R2WinBUGS library)
+resul = bugs(data = data, inits = inits, parameters.to.save = param, n.iter = 3000, n.burnin = 300, model.file = model.logist, bugs.seed = 1)
+
+# exploration of the structure of the bugs object
+names(resul)
+
+# result summary
+resul
+
+# detailed summary with 3 decimal digits
+round(resul$summary, 3)
+```
+
+## Computing time comparisons for `bugs` and `pbugs`
+```{r Computing times}
+time.3000.bugs = system.time(bugs(data = data, inits = inits, parameters.to.save = param, n.iter = 3000, n.burnin = 300, model.file = model.logist, bugs.seed = 1))
+
+time.30000.bugs = system.time(bugs(data = data, inits = inits, parameters.to.save = param, n.iter = 30000, n.burnin = 300, model.file = model.logist, bugs.seed = 1))
+
+time.300000.bugs = system.time(bugs(data = data, inits = inits, parameters.to.save = param, n.iter = 3e+05, n.burnin = 300, model.file = model.logist, bugs.seed = 1))
+
+time.3000000.bugs = system.time(bugs(data = data, inits = inits, parameters.to.save = param, n.iter = 3e+06, n.burnin = 300, model.file = model.logist, bugs.seed = 1))
+
+time.3000.pbugs = system.time(pbugs(data = data, inits = inits, parameters.to.save = param, n.iter = 3000, n.burnin = 300, model.file = model.logist, bugs.seed = 1))
+
+time.30000.pbugs = system.time(pbugs(data = data, inits = inits, parameters.to.save = param, n.iter = 30000, n.burnin = 300, model.file = model.logist, bugs.seed = 1))
+
+time.300000.pbugs = system.time(pbugs(data = data, inits = inits, parameters.to.save = param, n.iter = 3e+05, n.burnin = 300, model.file = model.logist, bugs.seed = 1))
+
+time.3000000.pbugs = system.time(pbugs(data = data, inits = inits, parameters.to.save = param, n.iter = 3e+06, n.burnin = 300, model.file = model.logist, bugs.seed = 1))
+
+# Computing times bugs
+c(time.3000.bugs[3], time.30000.bugs[3], time.300000.bugs[3], time.3000000.bugs[3])
+
+# Computing times pbugs
+c(time.3000.pbugs[3], time.30000.pbugs[3], time.300000.pbugs[3], time.3000000.pbugs[3])
+```

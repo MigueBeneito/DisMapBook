@@ -1,0 +1,60 @@
+---
+title: "Example 3.5"
+subtitle: "Disease mapping: from foundations to multidimensional modeling"
+author: Martinez-Beneito M.A. and Botella-Rocamora P.
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This document reproduces the analysis made at Example 3.5 of the book: "Disease mapping: from foundations to multidimensional modeling" by Martinez-Beneito M.A. and Botella-Rocamora P., published by CRC press in 2019. You can watch the analysis made with full detail at this pdf document, or even execute it if you want with the material available at <https://github.com/MigueBeneito/DMBook>. Anyway, this pdf file should be enough for following most of the details of the analysis made for this example.
+
+The statistical analysis below has been run in `R`, by additionally using the library `Rmarkdown`, so be sure that you have this software installed if you want to reproduce by yourself the content of this document. In that case we advise you to download first the annex material at <https://github.com/MigueBeneito/DMBook>, open with `Rstudio` the corresponding `.Rproj` file that you will find at the folder corresponding to this example and compile the corresponding `.Rmd` document. This will allow you to reproduce the whole statistical analysis below.
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, width = 80, tidy = TRUE, tidy.opts = list(width.cutoff = 70))
+set.seed(1)
+```
+
+## Libraries and data loading
+```{r libraries and data loading, warning=FALSE, message=FALSE}
+#Libraries loading
+#-----------------
+if(!require(rgdal)){install.packages("rgdal");library(rgdal)}
+if(!require(RColorBrewer)){install.packages("RColorBrewer");library(RColorBrewer)}
+
+#Data loading
+#------------
+# load cartography files: Spain country borders
+Country <- readOGR(dsn = "../Data/Carto", layer = "country")
+# Valencian provinces borders
+Provinces <- readOGR(dsn = "../Data/Carto", layer = "provinces")
+# Valencian municipalities borders
+Muni <- readOGR(dsn = "../Data/Carto", layer = "muni")
+
+head(Muni@data)
+# Note that the municipalities cartography is not ordered by municipality codes (CODMUNI). We are going to order it in that manner in order to avoid future errors when plotting variables ordered in that way (the most typical way).
+Muni <- Muni[order(Muni$CODMUNI), ]
+
+# load populations
+load("../Data/Population.Rdata")
+```
+
+#Plotting of the municipalities, provinces and Spain borders 
+```{r}
+# Average annual population (for men and women) for the period of study
+PopMuni <- apply(PopM + PopW, 1, sum)/25
+palette <- brewer.pal(5, "YlOrBr")
+cuts <- as.numeric(cut(PopMuni, c(0, 100, 1000, 10000, 1e+05, Inf)))
+# colours defined as a function of the municipality populations
+colours <- palette[cuts]
+
+# Plotting of the (coloured) municipalities, provinces and Spain borders
+plot(Muni)
+plot(Country, border = "blue", lwd = 3, col = "#FFFF88", add = T)
+plot(Muni, col = colours, add = T)
+plot(Provinces, add = T, border = "blue", lwd = 2)
+text(x = 810000, y = 4380000, label = "Mediterranean Sea", cex = 2, srt = 80)
+text(x = 6e+05, y = 4380000, label = "Mainland Spain", cex = 2, srt = 80)
+legend(x = "bottomright", legend = c("<100", "101-1000", "1001-10000", "10001-100000", ">100000"), fill = palette, title = "Population")
+```

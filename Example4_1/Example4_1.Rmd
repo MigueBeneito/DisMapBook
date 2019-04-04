@@ -1,0 +1,62 @@
+---
+title: "Example 4.1"
+subtitle: "Disease mapping: from foundations to multidimensional modeling"
+author: Martinez-Beneito M.A. and Botella-Rocamora P.
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This document reproduces the analysis made at Example 4.1 of the book: "Disease mapping: from foundations to multidimensional modeling" by Martinez-Beneito M.A. and Botella-Rocamora P., published by CRC press in 2019. You can watch the analysis made with full detail at this pdf document, or even execute it if you want with the material available at <https://github.com/MigueBeneito/DMBook>. Anyway, this pdf file should be enough for following most of the details of the analysis made for this example.
+
+The statistical analysis below has been run in `R`, by additionally using the library `Rmarkdown`, so be sure that you have this software installed if you want to reproduce by yourself the content of this document. In that case we advise you to download first the annex material at <https://github.com/MigueBeneito/DMBook>, open with `Rstudio` the corresponding `.Rproj` file that you will find at the folder corresponding to this example and compile the corresponding `.Rmd` document. This will allow you to reproduce the whole statistical analysis below.
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, width = 80, tidy = TRUE, tidy.opts = list(width.cutoff = 70))
+set.seed(1)
+```
+
+This document has been executed with real data that are not provided in order to preserve their confidentiality. Slightly modified data are provided instead, as described in Chapter 1 of the book. Thus, when reproducing this document you will not obtain exactly the same results, although they should be very close to those shown here.
+
+##Libraries and data loading
+```{r libraries and data loading, warning=FALSE, message=FALSE}
+#Data loading
+#------------
+#For reproducing the document, the following line should be changed to load("../Data/ObsOral-mod.Rdata") since that file contains the modified data making it possible to reproduce this document.
+load("../Data/ObsOral.Rdata")
+load("../Data/ObsOral-age.Rdata")
+load("../Data/Population.Rdata")
+```
+
+##SMRs
+```{r}
+# Municipalities X age-groups X years
+dim(PopM)
+# Population per municipality for the whole period of analysis (we have rounded these populations since for some years they have been estimated)
+Pop = round(apply(PopM, c(1, 2), sum))
+# age-specific rates
+Rates.VR = Obs.age/apply(Pop, 2, sum)
+# Expected cases
+Exp.muni = as.vector(Pop %*% matrix(Rates.VR, ncol = 1))
+# SMRs
+SMR.muni = 100 * Obs.muni/Exp.muni
+# Number of SMRs equal to 0
+sum(SMR.muni == 0)
+summary(SMR.muni)
+```
+
+##Confidence intervals for the SMRs
+```{r}
+# 95% IC assuming Normality
+IC.norm = cbind(SMR.muni * exp(qnorm(0.025)/sqrt(Obs.muni)), SMR.muni * exp(qnorm(0.975)/sqrt(Obs.muni)))
+head(IC.norm, 5)
+
+# 95% Poisson-based IC
+IC.pois = 100 * cbind(qchisq(0.025, 2 * Obs.muni)/(2 * Exp.muni), qchisq(0.975, 2 * (Obs.muni + 1))/(2 * Exp.muni))
+head(IC.pois, 5)
+
+# 95% Bayesian credible interval
+IC.Bayes = 100 * cbind(qgamma(0.025, Obs.muni + 1, Exp.muni), qgamma(0.975, Obs.muni + 1, Exp.muni))
+head(IC.Bayes, 5)
+```
+

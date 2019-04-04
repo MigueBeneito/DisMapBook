@@ -1,0 +1,476 @@
+---
+title: "Example 7.3"
+subtitle: "Disease mapping: from foundations to multidimensional modeling"
+author: Martinez-Beneito M.A. and Botella-Rocamora P.
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This document reproduces the analysis made at Example 7.3 of the book: "Disease mapping: from foundations to multidimensional modeling" by Martinez-Beneito M.A. and Botella-Rocamora P., published by CRC press in 2019. You can watch the analysis made with full detail at this pdf document, or even execute it if you want with the material available at <https://github.com/MigueBeneito/DMBook>. Anyway, this pdf file should be enough for following most of the details of the analysis made for this example.
+
+The statistical analysis below has been run in `R`, by additionally using the library `Rmarkdown`, so be sure that you have this software installed if you want to reproduce by yourself the content of this document. In that case we advise you to download first the annex material at <https://github.com/MigueBeneito/DMBook>, open with `Rstudio` the corresponding `.Rproj` file that you will find at the folder corresponding to this example and compile the corresponding `.Rmd` document. This will allow you to reproduce the whole statistical analysis below.
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, width = 80, tidy = TRUE, tidy.opts = list(width.cutoff = 70))
+set.seed(1)
+```
+
+This document has been executed with real data that are not provided in order to preserve their confidentiality. Slightly modified data are provided instead, as described in Chapter 1 of the book. Thus, when reproducing this document you will not obtain exactly the same results, although they should be very close to those shown here.
+
+The code used for this Example has been adapted from that used in: "Ugarte, M. D., Adin, A. and Goicoa, T. (2017). One-dimensional, two-dimensional and three dimensional B-splines to specify space-time interactions in Bayesian disease mappping: Model fitting and model identifiability. Spatial statistics, 22: 451-468", which has been kindly shared by its authors. Most technical details of the models implemented, mainly those corresponding to their constraints, can be found at the original paper.
+
+##Libraries and data loading
+```{r libraries and data loading, warning=FALSE, message=FALSE}
+#Libraries loading
+#-----------------
+if(!require(splines)){install.packages("splines");library(splines)}
+if(!require(INLA)){install.packages("INLA",repos=c(getOption("repos"), INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE);library(INLA)}
+
+#Data loading
+#------------
+#For reproducing the document, the following line should be changed to load("../Data/ObsOral-ET-mod.Rdata") since that file contains the modified data making it possible to reproduce this document.
+load("../Data/ObsOral-ET.Rdata")
+#load("../Data/ObsOral-mod.Rdata")
+load("../Data/ExpOral-ET.Rdata")
+load("../Data/VR.Rdata")
+```
+
+## Some preliminar definitions
+```{r}
+# Strategy for fitting INLA models
+strategy = "gaussian"
+
+# Number of municipalities and periods
+nmuni = dim(ObsOral)[1]
+nper = dim(ObsOral)[2]
+
+# INLA prior distributions
+# Unif(0,Inf) distribution for standard deviations
+sdunif = "expression:
+  logdens = -log_precision/2;
+  return(logdens)"
+
+# Unif(0,1) distribution for the spatial smoothing parameter in LCAR random effects
+lunif = "expression:
+    beta = exp(theta)/(1+exp(theta));
+    logdens = 0;
+    log_jacobian = log(beta*(1-beta));
+    return(logdens+log_jacobian)"
+```
+
+##Definition of marginal spatial and temporal bases of functions
+```{r}
+# Construct the temporal B-spline basis
+#-------------------------------------
+p = 3  ##Cubic B-splines
+q = 3  ##3 Number of internal intervals
+
+# Time covariate scaled into the [0,1] interval
+xt = 1:nper
+xt = (xt - min(xt))/(max(xt) - min(xt))
+dist = (max(xt) - min(xt))/q
+xtl = min(xt) - dist * 0.05
+xtr = max(xt) + dist * 0.05
+dxt = (xtr - xtl)/q
+knotst = seq(xtl - p * dxt, xtr + p * dxt, by = dxt)
+
+# The temporal B-spline basis
+Bt = splineDesign(knotst, xt, p + 1)
+# dimension of the basis
+kt = ncol(Bt)
+
+# Construct the spatial B-spline basis
+#------------------------------------
+qh = 7  ## Number of internal intervals (horizontal)
+qv = 14  ## Number of internal intervals (vertical)
+
+# Longitudes scaled into the [0,1] interval
+x1 = coordinates(VR.cart)[, 1]  ## Longitude covariate scaled
+x1 = (x1 - min(x1))/(max(x1) - min(x1))  ## into the [0,1] interval
+dist1 = (max(x1) - min(x1))/qh
+x1l = min(x1) - dist1 * 0.05
+x1r = max(x1) + dist1 * 0.05
+dx1 = (x1r - x1l)/qh
+knots1 = seq(x1l - p * dx1, x1r + p * dx1, by = dx1)
+
+# The horizontal B-spline basis
+B1 = splineDesign(knots1, x1, p + 1)
+# dimension of the basis
+k1 = ncol(B1)
+
+# Latitudes scaled into the [0,1] interval
+x2 = coordinates(VR.cart)[, 2]  ## Latitude covariate scaled
+x2 = (x2 - min(x2))/(max(x2) - min(x2))  ## into the [0,1] interval
+dist2 = (max(x2) - min(x2))/qv
+x2l = min(x2) - dist2 * 0.05
+x2r = max(x2) + dist2 * 0.05
+dx2 = (x2r - x2l)/qv
+knots2 = seq(x2l - p * dx2, x2r + p * dx2, by = dx2)
+
+# The vertical B-spline basis
+B2 = splineDesign(knots2, x2, p + 1)
+# dimension of the basis
+k2 = ncol(B2)
+
+## Row-wise Kronecker product ##
+Rten = function(X1, X2) {
+    one1 = matrix(1, 1, ncol(X1))
+    one2 = matrix(1, 1, ncol(X2))
+    kronecker(X1, one2) * kronecker(one1, X2)
+}
+
+# The spatial B-spline basis
+Bs = Rten(B2, B1)
+ks = ncol(Bs)
+```
+
+##Structure matrices for the penalties of the spatial and temporal terms
+```{r}
+g = inla.read.graph("../Data/VR.graph")
+
+# Structure matrix for the spatial term
+#-------------------------------------
+# ICAR structure matrix
+R.xi = matrix(0, g$n, g$n)
+for (i in 1:g$n) {
+    R.xi[i, i] = g$nnbs[[i]]
+    R.xi[i, g$nbs[[i]]] = -1
+}
+# auxiliar matrix for setting up a LCAR process
+R.Leroux = diag(nmuni) - R.xi
+
+# Structure matrix for the temporal term with a first order (RW1) penalty
+Dt = diff(diag(kt))
+Pt = t(Dt) %*% Dt
+```
+
+
+# Model without spatio-temporal interaction
+```{r}
+# Data for this model
+Data.NoInt = list(O = as.vector(ObsOral), E = as.vector(ExpOral), intercept = c(1, rep(NA, nmuni + kt)), ID.area = c(NA, 1:nmuni, rep(NA, kt)), ID.year = c(rep(NA, 1 + nmuni), 1:kt))
+
+inter = rep(1, nmuni * nper)
+
+# Design matrices for random effect terms
+Ms = kronecker(matrix(1, nper, 1), diag(nmuni))
+B_t = kronecker(Bt, matrix(1, nmuni, 1))
+
+# Formula (we remove the default intercept and add it explicitally in order to include this term in the municipal predictions made by INLA. Otherwise, the default intercept would not be included in
+# those predictions)
+f.M1 = O ~ -1 + intercept + f(ID.area, model = "generic1", Cmatrix = R.Leroux, constr = TRUE, hyper = list(prec = list(prior = sdunif), beta = list(prior = lunif))) + f(ID.year, model = "rw1", constr = TRUE, 
+    hyper = list(prec = list(prior = sdunif)))
+
+# INLA fit of the model and predictions at every combination of municipality and time interval
+result.1 = inla(f.M1, family = "poisson", data = Data.NoInt, E = E, control.predictor = list(compute = TRUE, A = cbind(inter, Ms, B_t), link = 1), control.compute = list(dic = TRUE), control.inla = list(strategy = strategy))
+summary(result.1)
+```
+
+# 1-dimensional P-spline models
+```{r}
+# Data for these models
+Data.1d = list(O = as.vector(ObsOral), E = as.vector(ExpOral), intercept = c(1, rep(NA, nmuni + kt + nmuni * kt)), ID.area = c(NA, 1:nmuni, rep(NA, kt + nmuni * kt)), ID.year = c(rep(NA, 1 + nmuni), 1:kt, 
+    rep(NA, nmuni * kt)), ID.area.year = c(rep(NA, 1 + nmuni + kt), 1:(nmuni * kt)))
+
+# Design matrix for the spatio-temporal term
+B_st = kronecker(Bt, diag(nmuni))
+```
+
+## iid (type I) penalty for the coefficients of the spatio-temporal term
+```{r}
+# Linear constraint for the spatio-temporal term in this model
+A.constr = kronecker(matrix(1, 1, nper) %*% Bt, matrix(1, 1, nmuni))
+
+# Formula
+f.M2.1 = O ~ -1 + intercept + f(ID.area, model = "generic1", Cmatrix = R.Leroux, constr = TRUE, hyper = list(prec = list(prior = sdunif), beta = list(prior = lunif))) + f(ID.year, model = "rw1", constr = TRUE, 
+    hyper = list(prec = list(prior = sdunif))) + f(ID.area.year, model = "iid", constr = FALSE, hyper = list(prec = list(prior = sdunif)), extraconstr = list(A = A.constr, e = 0))
+
+# INLA fit of the model and predictions at every combination of municipality and time interval
+result.2.1 = inla(f.M2.1, family = "poisson", data = Data.1d, E = E, control.predictor = list(compute = TRUE, A = cbind(inter, Ms, B_t, B_st), link = 1), control.compute = list(dic = TRUE), control.inla = list(strategy = strategy))
+summary(result.2.1)
+```
+
+## Temporal (type II) penalty for the coefficients of the spatio-temporal term
+```{r}
+# Temporal (type II) penalty for the coefficients of the spatio-temporal term
+R = kronecker(Pt, diag(nmuni))
+
+# nmuni linear constraints for the spatio-temporal term in this model. The splines coefficients for each municipality should sum 0.
+A.constr = kronecker(matrix(1, 1, kt), diag(nmuni))
+
+# Formula
+f.M2.2 = O ~ -1 + intercept + f(ID.area, model = "generic1", Cmatrix = R.Leroux, constr = TRUE, hyper = list(prec = list(prior = sdunif), beta = list(prior = lunif))) + f(ID.year, model = "rw1", constr = TRUE, 
+    hyper = list(prec = list(prior = sdunif))) + f(ID.area.year, model = "generic0", Cmatrix = R, rankdef = nmuni, constr = TRUE, hyper = list(prec = list(prior = sdunif)), extraconstr = list(A = A.constr, 
+    e = rep(0, nmuni)))
+
+# INLA fit of the model and predictions at every combination of municipality and time interval
+result.2.2 = inla(f.M2.2, family = "poisson", data = Data.1d, E = E, control.predictor = list(compute = TRUE, A = cbind(inter, Ms, B_t, B_st), link = 1), control.compute = list(dic = TRUE), control.inla = list(strategy = strategy))
+summary(result.2.2)
+```
+
+## Spatial (type III) penalty for the coefficients of the spatio-temporal term
+```{r}
+# Spatial (type III) penalty for the coefficients of the spatio-temporal term
+R = kronecker(diag(kt), R.xi)
+# kt linear constraints for the spatio-temporal term in this model. The splines coefficients for each element in the basis should sum 0.
+A.constr = kronecker(diag(kt), matrix(1, 1, nmuni))
+
+# Formula
+f.M2.3 = O ~ -1 + intercept + f(ID.area, model = "generic1", Cmatrix = R.Leroux, constr = TRUE, hyper = list(prec = list(prior = sdunif), beta = list(prior = lunif))) + f(ID.year, model = "rw1", constr = TRUE, 
+    hyper = list(prec = list(prior = sdunif))) + f(ID.area.year, model = "generic0", Cmatrix = R, rankdef = kt, constr = TRUE, hyper = list(prec = list(prior = sdunif)), extraconstr = list(A = A.constr, 
+    e = rep(0, kt)))
+
+# INLA fit of the model and predictions at every combination of municipality and time interval
+result.2.3 = inla(f.M2.3, family = "poisson", data = Data.1d, E = E, control.predictor = list(compute = TRUE, A = cbind(inter, Ms, B_t, B_st), link = 1), control.compute = list(dic = TRUE), control.inla = list(strategy = strategy))
+summary(result.2.3)
+```
+
+## Spatio-temporally structured (type IV) penalty for the coefficients of the spatio-temporal term
+```{r}
+# Spatio-temporally structured (type IV) penalty for the coefficients of the spatio-temporal term
+R = kronecker(Pt, R.xi)
+
+# nmuni+kt linear constraints for the spatio-temporal term in this model. The splines coefficients for each element in the basis and municipality should sum 0.
+A1 = kronecker(matrix(1, 1, kt), diag(nmuni))
+A2 = kronecker(diag(kt), matrix(1, 1, nmuni))
+A.constr = rbind(A1, A2)
+
+# Formula
+f.M2.4 = O ~ -1 + intercept + f(ID.area, model = "generic1", Cmatrix = R.Leroux, constr = TRUE, hyper = list(prec = list(prior = sdunif), beta = list(prior = lunif))) + f(ID.year, model = "rw1", constr = TRUE, 
+    hyper = list(prec = list(prior = sdunif))) + f(ID.area.year, model = "generic0", Cmatrix = R, rankdef = nmuni + kt - 1, constr = TRUE, hyper = list(prec = list(prior = sdunif)), extraconstr = list(A = A.constr, 
+    e = rep(0, nmuni + kt)))
+
+# INLA fit of the model and predictions at every combination of municipality and time interval
+result.2.4 = inla(f.M2.4, family = "poisson", data = Data.1d, E = E, control.predictor = list(compute = TRUE, A = cbind(inter, Ms, B_t, B_st), link = 1), control.compute = list(dic = TRUE), control.inla = list(strategy = strategy))
+summary(result.2.4)
+```
+
+#2-dimensional P-spline models
+```{r}
+# Additional design matrices for random effects:
+B_s = kronecker(matrix(1, nper, 1), Bs)
+Mt = kronecker(diag(nper), matrix(1, nmuni, 1))
+# Redefinition of the design matrix of the spatio-temporal term as a function of the spatial basis B_s.
+B_st = kronecker(diag(nper), Bs)
+
+# RW1 Penalty function for the coefficients of the spatial spline (Longitudes)
+D1 = diff(diag(k1))
+P1 = t(D1) %*% D1
+R1 = kronecker(diag(k2), P1)
+
+# RW1 Penalty function for the coefficients of the spatial spline (Latitudes)
+D2 = diff(diag(k2))
+P2 = t(D2) %*% D2
+R2 = kronecker(P2, diag(k1))
+
+# Set of penalties for the spatial spline
+Cmat.s = list(inla.as.sparse(R1), inla.as.sparse(R2))
+
+# RW1 Penalty function for the coefficients of the spatial spline (temporal)
+Dt = diff(diag(nper))
+Pt = t(Dt) %*% Dt
+
+# Data for the 2-dimensional spline models
+Data.2d = list(O = as.vector(ObsOral), E = as.vector(ExpOral), intercept = c(1, rep(NA, ks + nper + ks * nper)), ID.area = c(NA, 1:ks, rep(NA, nper + ks * nper)), ID.year = c(rep(NA, 1 + ks), 1:nper, 
+    rep(NA, ks * nper)), ID.area.year = c(rep(NA, 1 + ks + nper), 1:(ks * nper)))
+```
+
+## iid (type I) penalty for the coefficients of the spatio-temporal term
+```{r, warning=FALSE}
+# linear constraint for the spatio-temporal term in this model.
+A.constr = kronecker(matrix(1, 1, nper), matrix(1, 1, nmuni) %*% Bs)
+
+# Formula
+f.M3.1 = O ~ -1 + intercept + f(ID.area, model = "generic3", Cmatrix = Cmat.s, constr = TRUE, diagonal = 1e-06, hyper = list(prec1 = list(prior = sdunif), prec2 = list(prior = sdunif))) + f(ID.year, model = "rw1", 
+    constr = TRUE, hyper = list(prec = list(prior = sdunif))) + f(ID.area.year, model = "iid", constr = FALSE, hyper = list(prec = list(prior = sdunif)), extraconstr = list(A = rbind(A.constr), e = 0))
+
+# INLA fit of the model and predictions at every combination of municipality and time interval
+result.3.1 = inla(f.M3.1, family = "poisson", data = Data.2d, E = E, control.predictor = list(compute = TRUE, A = cbind(inter, B_s, Mt, B_st), link = 1), control.compute = list(dic = TRUE), control.inla = list(strategy = strategy))
+summary(result.3.1)
+```
+
+## Temporal (type II) penalty for the coefficients of the spatio-temporal term
+```{r, warning=FALSE}
+# Temporal (type II) penalty for the coefficients of the spatio-temporal term
+R = kronecker(Pt, diag(ks))
+
+# ks linear constraints for the spatio-temporal term in this model. The splines coefficients for each element in the spatial basis should sum 0.
+A.constr =- kronecker(matrix(1, 1, nper), diag(ks))
+
+# Formula
+f.M3.2 = O ~ -1 + intercept + f(ID.area, model = "generic3", Cmatrix = Cmat.s, constr = TRUE, diagonal = 1e-06, hyper = list(prec1 = list(prior = sdunif), prec2 = list(prior = sdunif))) + f(ID.year, model = "rw1", 
+    constr = TRUE, hyper = list(prec = list(prior = sdunif))) + f(ID.area.year, model = "generic0", Cmatrix = R, rankdef = ks, constr = TRUE, hyper = list(prec = list(prior = sdunif)), extraconstr = list(A = A.constr, 
+    e = rep(0, ks)))
+
+# INLA fit of the model and predictions at every combination of municipality and time interval
+result.3.2 = inla(f.M3.2, family = "poisson", data = Data.2d, E = E, control.compute = list(dic = TRUE), control.inla = list(strategy = strategy), control.predictor = list(compute = TRUE, A = cbind(inter, 
+    B_s, Mt, B_st), link = 1))
+summary(result.3.2)
+```
+
+## Spatial (type III) penalty for the coefficients of the spatio-temporal term
+```{r, warning=FALSE}
+# Spatial (type III) penalty for the coefficients of the spatio-temporal term
+RR1 = kronecker(diag(nper), R1)
+RR2 = kronecker(diag(nper), R2)
+Cmat.st = list(inla.as.sparse(RR1), inla.as.sparse(RR2))
+
+# nper linear constraints for the spatio-temporal term in this model. The splines coefficients for each period should sum 0.
+A.constr = kronecker(diag(nper), matrix(1, 1, ks))
+
+# Formula
+f.M3.3 = O ~ -1 + intercept + f(ID.area, model = "generic3", Cmatrix = Cmat.s, constr = TRUE, diagonal = 1e-06, hyper = list(prec1 = list(prior = sdunif), prec2 = list(prior = sdunif))) + f(ID.year, model = "rw1", 
+    constr = TRUE, hyper = list(prec = list(prior = sdunif))) + f(ID.area.year, model = "generic3", Cmatrix = Cmat.st, constr = TRUE, diagonal = 1e-06, extraconstr = list(A = A.constr, e = rep(0, nper)), 
+    hyper = list(prec1 = list(prior = sdunif), prec2 = list(prior = sdunif)))
+
+# INLA fit of the model and predictions at every combination of municipality and time interval
+result.3.3 = inla(f.M3.3, family = "poisson", data = Data.2d, E = E, control.predictor = list(compute = TRUE, A = cbind(inter, B_s, Mt, B_st), link = 1), control.compute = list(dic = TRUE), control.inla = list(strategy = strategy))
+summary(result.3.3)
+```
+
+## Spatio-temporally structured (type IV) penalty for the coefficients of the spatio-temporal term
+```{r, warning=FALSE}
+## Spatio-temporally structured (type IV) penalty for the coefficients of the spatio-temporal term
+RR1 = kronecker(Pt, R1)
+RR2 = kronecker(Pt, R2)
+Cmat.st = list(inla.as.sparse(RR1), inla.as.sparse(RR2))
+
+# nper+ks linear constraints for the spatio-temporal term in this model. The splines coefficients for each period and element in the basis should sum 0.
+A1 = kronecker(diag(nper), matrix(1, 1, ks))
+A2 = kronecker(matrix(1, 1, nper), diag(ks))
+A.constr = rbind(A1, A2)
+
+# Formula
+f.M3.4 = O ~ -1 + intercept + f(ID.area, model = "generic3", Cmatrix = Cmat.s, constr = TRUE, diagonal = 1e-06, hyper = list(prec1 = list(prior = sdunif), prec2 = list(prior = sdunif))) + f(ID.year, model = "rw1", 
+    constr = TRUE, hyper = list(prec = list(prior = sdunif))) + f(ID.area.year, model = "generic3", Cmatrix = Cmat.st, constr = TRUE, diagonal = 1e-06, extraconstr = list(A = A.constr, e = rep(0, ks + 
+    nper)), hyper = list(prec1 = list(prior = sdunif), prec2 = list(prior = sdunif)))
+
+# INLA fit of the model and predictions at every combination of municipality and time interval
+result.3.4 = inla(f.M3.4, family = "poisson", data = Data.2d, E = E, control.predictor = list(compute = TRUE, A = cbind(inter, B_s, Mt, B_st), link = 1), control.compute = list(dic = TRUE), control.inla = list(strategy = strategy))
+summary(result.3.4)
+```
+
+#3-dimensional P-spline models
+```{r}
+# Design matrices for random effects
+B = kronecker(Bt, Bs)
+k = dim(B)[2]
+
+# Data for these models
+Data.3d = list(O = as.vector(ObsOral), E = as.vector(ExpOral), intercept = c(1, rep(NA, k)), ID.spline = c(NA, 1:k))
+
+# RW1 Penalty function for the coefficients of the spatial spline (temporal)
+Dt = diff(diag(kt))
+Pt = t(Dt) %*% Dt
+
+# Penalty function for the three-dimensional splines
+R1 = kronecker(diag(kt), kronecker(diag(k2), P1))
+R2 = kronecker(diag(kt), kronecker(P2, diag(k1)))
+R3 = kronecker(Pt, kronecker(diag(k2), diag(k1)))
+```
+
+## Spatio-temporally structured (type IV) penalty for the coefficients of the spatio-temporal term
+```{r}
+Cmat = list(inla.as.sparse(R1), inla.as.sparse(R2), inla.as.sparse(R3))
+
+f.M4.4 = O ~ -1 + intercept + f(ID.spline, model = "generic3", Cmatrix = Cmat, constr = TRUE, hyper = list(prec1 = list(prior = sdunif), prec2 = list(prior = sdunif), prec3 = list(prior = sdunif)))
+
+result.4.4 = inla(f.M4.4, family = "poisson", data = Data.3d, E = E, control.predictor = list(compute = TRUE, A = cbind(inter, B), link = 1), control.compute = list(dic = TRUE), control.inla = list(strategy = strategy))
+
+summary(result.4.4)
+```
+
+#3-dimensional ANOVA type P-spline models
+```{r}
+# Data for these models
+Data.3dANOVA = list(O = as.vector(ObsOral), E = as.vector(ExpOral), intercept = c(1, rep(NA, ks + kt + ks * kt)), ID.area = c(NA, 1:ks, rep(NA, kt + ks * kt)), ID.year = c(rep(NA, 1 + ks), 1:kt, rep(NA, 
+    ks * kt)), ID.area.year = c(rep(NA, 1 + ks + kt), 1:(ks * kt)))
+
+# Design matrices
+B_t = kronecker(Bt, matrix(1, nmuni, 1))
+B_st = kronecker(Bt, Bs)
+
+# Set of penalties for the temporal term
+Cmat.t = list(inla.as.sparse(Pt))
+
+# Set of penalties for the spatio-temporal term
+RR1 = kronecker(diag(kt), kronecker(diag(k2), P1))
+RR2 = kronecker(diag(kt), kronecker(P2, diag(k1)))
+RR3 = kronecker(Pt, kronecker(diag(k2), diag(k1)))
+```
+
+## iid (type IV) penalty for the coefficients of the spatio-temporal term
+```{r}
+Cmat.st = list(inla.as.sparse(RR1), inla.as.sparse(RR2), inla.as.sparse(RR3))
+
+# Formula
+f.M5.4 = O ~ -1 + intercept + f(ID.area, model = "generic3", Cmatrix = Cmat.s, constr = TRUE, hyper = list(prec1 = list(prior = sdunif), prec2 = list(prior = sdunif))) + f(ID.year, model = "generic3", 
+    Cmatrix = Cmat.t, constr = TRUE, hyper = list(prec1 = list(prior = sdunif))) + f(ID.area.year, model = "generic3", Cmatrix = Cmat.st, constr = TRUE, hyper = list(prec1 = list(prior = sdunif), prec2 = list(prior = sdunif), 
+    prec3 = list(prior = sdunif)))
+
+# INLA fit of the model and predictions at every combination of municipality and time interval
+result.5.4 = inla(f.M5.4, family = "poisson", data = Data.3dANOVA, E = E, control.predictor = list(compute = TRUE, A = cbind(inter, B_s, B_t, B_st), link = 1), control.compute = list(dic = TRUE), control.inla = list(strategy = strategy))
+
+summary(result.5.4)
+```
+
+##DIC comparison of the models fitted
+```{r}
+result.1$dic$dic
+c(result.2.1$dic$dic,result.2.2$dic$dic,result.2.3$dic$dic,result.2.4$dic$dic)
+c(result.3.1$dic$dic,result.3.2$dic$dic,result.3.3$dic$dic,result.3.4$dic$dic)
+result.4.4$dic$dic
+result.5.4$dic$dic
+```
+
+##Computing times
+```{r}
+result.1$cpu.used[4]/60
+c(result.2.1$cpu.used[4],result.2.2$cpu.used[4],result.2.3$cpu.used[4],result.2.4$cpu.used[4])/60
+c(result.3.1$cpu.used[4],result.3.2$cpu.used[4],result.3.3$cpu.used[4],result.3.4$cpu.used[4])/60
+result.4.4$cpu.used[4]/60
+result.5.4$cpu.used[4]/60
+```
+
+##Variance decomposition
+```{r}
+VarDecomp = function(sSMRs, nmuni, nper) {
+    log.sSMRs = log(sSMRs)
+    grand.mean = matrix(mean(log.sSMRs), nrow = nmuni, ncol = nper)
+    rows.mean = matrix(rep(apply(log.sSMRs, 1, mean), nper), nrow = nmuni, ncol = nper, byrow = FALSE)
+    columns.mean = matrix(rep(apply(log.sSMRs, 2, mean), nmuni), nrow = nmuni, ncol = nper, byrow = TRUE)
+    
+    var.spat = var(apply(log.sSMRs, 1, mean))
+    var.temp = var(apply(log.sSMRs, 2, mean))
+    var.spattemp = var(c(log.sSMRs - rows.mean - columns.mean + grand.mean))
+    var.total = var.spat + var.temp + var.spattemp
+    dev = round(100 * c(var.spat, var.temp, var.spattemp)/var.total, 2)
+    names(dev) = c("var.sp", "var.t", "var.sp-t")
+    dev
+}
+
+VarDecomp(matrix(result.1$summary.fitted.values[1:(nmuni * nper), 1], nrow = nmuni, ncol = nper), nmuni, nper)
+VarDecomp(matrix(result.2.1$summary.fitted.values[1:(nmuni * nper), 1], nrow = nmuni, ncol = nper), nmuni, nper)
+VarDecomp(matrix(result.2.2$summary.fitted.values[1:(nmuni * nper), 1], nrow = nmuni, ncol = nper), nmuni, nper)
+VarDecomp(matrix(result.2.3$summary.fitted.values[1:(nmuni * nper), 1], nrow = nmuni, ncol = nper), nmuni, nper)
+VarDecomp(matrix(result.2.4$summary.fitted.values[1:(nmuni * nper), 1], nrow = nmuni, ncol = nper), nmuni, nper)
+VarDecomp(matrix(result.3.1$summary.fitted.values[1:(nmuni * nper), 1], nrow = nmuni, ncol = nper), nmuni, nper)
+VarDecomp(matrix(result.3.2$summary.fitted.values[1:(nmuni * nper), 1], nrow = nmuni, ncol = nper), nmuni, nper)
+VarDecomp(matrix(result.3.3$summary.fitted.values[1:(nmuni * nper), 1], nrow = nmuni, ncol = nper), nmuni, nper)
+VarDecomp(matrix(result.3.4$summary.fitted.values[1:(nmuni * nper), 1], nrow = nmuni, ncol = nper), nmuni, nper)
+VarDecomp(matrix(result.4.4$summary.fitted.values[1:(nmuni * nper), 1], nrow = nmuni, ncol = nper), nmuni, nper)
+VarDecomp(matrix(result.5.4$summary.fitted.values[1:(nmuni * nper), 1], nrow = nmuni, ncol = nper), nmuni, nper)
+```
+
+
+##sSMRs time trends plot for the one-dimensional model with unstructured penalty 
+```{r}
+rmes1 = matrix(result.2.1$summary.fitted.values[1:(nmuni * nper), 1], nrow = nmuni, ncol = nper)
+rme.overall = apply(rmes1, 2, mean)
+plot(rmes1[1, ], type = "n", ylim = c(min(c(rmes1)), max(c(rmes1))), xlab = "Season", ylab = "Municipal sSMRs", main = "Time trends")
+for (i in 1:540) {
+    lines(rmes1[i, ], type = "l", col = "grey")
+}
+lines(rme.overall, type = "l", main = "Common temporal trend", lwd = 2)
+```

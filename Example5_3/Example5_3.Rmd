@@ -1,0 +1,188 @@
+---
+title: "Example 5.3"
+subtitle: "Disease mapping: from foundations to multidimensional modeling"
+author: Martinez-Beneito M.A. and Botella-Rocamora P.
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This document reproduces the analysis made at Example 5.3 of the book: "Disease mapping: from foundations to multidimensional modeling" by Martinez-Beneito M.A. and Botella-Rocamora P., published by CRC press in 2019. You can watch the analysis made with full detail at this pdf document, or even execute it if you want with the material available at <https://github.com/MigueBeneito/DMBook>. Anyway, this pdf file should be enough for following most of the details of the analysis made for this example.
+
+The statistical analysis below has been run in `R`, by additionally using the library `Rmarkdown`, so be sure that you have this software installed if you want to reproduce by yourself the content of this document. In that case we advise you to download first the annex material at <https://github.com/MigueBeneito/DMBook>, open with `Rstudio` the corresponding `.Rproj` file that you will find at the folder corresponding to this example and compile the corresponding `.Rmd` document. This will allow you to reproduce the whole statistical analysis below.
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, width = 80, tidy = TRUE, tidy.opts = list(width.cutoff = 70))
+set.seed(1)
+```
+
+This document has been executed with real data that are not provided in order to preserve their confidentiality. Slightly modified data are provided instead, as described in Chapter 1 of the book. Thus, when reproducing this document you will not obtain exactly the same results, although they should be very close to those shown here.
+
+##Libraries and data loading
+```{r libraries and data loading, warning=FALSE, message=FALSE}
+#Libraries loading
+#-----------------
+#library(RColorBrewer)
+#library(rgdal)
+#library(pbugs)
+#library(R2WinBUGS)
+if(!require(INLA)){install.packages("INLA",repos=c(getOption("repos"), INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE);library(INLA)}
+
+#Data loading
+#------------
+#For reproducing the document, the following line should be changed to load("../Data/ObsOral-mod.Rdata") since that file contains the modified data making it possible to reproduce this document.
+load("../Data/ObsOral.Rdata")
+#load("../Data/ObsOral-mod.Rdata")
+load("../Data/ExpOral.Rdata")
+load("../Data/VR.Rdata")
+```
+
+##Data management
+```{r}
+# Latitudes and longitudes of the centroids of the municipalities
+lat = sapply(VR.cart@polygons, function(x) {
+    mean(x@Polygons[[1]]@coords[, 2])
+})
+# standardization of the latitudes
+lat = (lat - mean(lat))/sd(lat)
+
+long = sapply(VR.cart@polygons,function(x){mean(x@Polygons[[1]]@coords[,1])}) 
+long = (long-mean(long))/sd(long)
+```
+
+## Model 1
+```{r}
+data1 = data.frame(O = Obs.muni, E = Exp.muni, Cov = lat)
+form1 = O ~ Cov
+result1 = inla(form1, data = data1, family = "poisson", E = E, control.compute = list(dic = TRUE))
+```
+
+##Model 2
+```{r}
+sdunif = "expression:
+	logdens = -log_precision/2;
+    return(logdens)"
+
+data2 = data.frame(O = Obs.muni, E = Exp.muni, Cov = lat, id.node = 1:length(lat))
+form2 = O ~ Cov + f(id.node, model = "bym", hyper = list(prec.spatial = list(prior = sdunif), prec.unstruct = list(prior = sdunif)), graph = "../Data/VR.graph")
+result2 = inla(form2, data = data2, family = "poisson", E = E, control.compute = list(dic = TRUE))
+```
+
+##Model 3
+```{r}
+A.orth = rbind(c(rep(0, 540), lat))
+form3 = O ~ Cov + f(id.node, model = "bym", hyper = list(prec.spatial = list(prior = sdunif), prec.unstruct = list(prior = sdunif)), graph = "../Data/VR.graph", extraconstr = list(A = A.orth, e = rep(0, 
+    1)), rankdef = 2, constr = TRUE)
+result3 = inla(form3, data = data2, family = "poisson", E = E, control.compute = list(dic = TRUE))
+```
+
+##Model 4
+```{r}
+A.orth = rbind(c(rep(0, 540), Exp.muni), c(rep(0, 540), lat * Exp.muni))
+form4 = O ~ Cov + f(id.node, model = "bym", hyper = list(prec.spatial = list(prior = sdunif), prec.unstruct = list(prior = sdunif)), graph = "../Data/VR.graph", extraconstr = list(A = A.orth, e = rep(0, 
+    2)), rankdef = 2, constr = FALSE)
+result4 = inla(form4, data = data2, family = "poisson", E = E, control.compute = list(dic = TRUE))
+```
+
+##Model 5
+```{r}
+A.orth = rbind(c(rep(0, 540), Exp.muni * result2$summary.fitted.values[, 6]), c(rep(0, 540), lat * Exp.muni * result2$summary.fitted.values[, 6]))
+form5 = O ~ Cov + f(id.node, model = "bym", hyper = list(prec.spatial = list(prior = sdunif), prec.unstruct = list(prior = sdunif)), graph = "../Data/VR.graph", extraconstr = list(A = A.orth, e = rep(0, 
+    2)), rankdef = 2, constr = FALSE)
+result5 = inla(form5, data = data2, family = "poisson", E = E, control.compute = list(dic = TRUE))
+```
+
+##Fixed effects summaries
+```{r}
+result1$summary.fixed
+result2$summary.fixed
+result3$summary.fixed
+result4$summary.fixed
+result5$summary.fixed
+```
+
+##Fit of all 5 models for 46 data sets 
+These data are not provided for reproducing the analysis since they correspond, basically, to the whole municipal mortality in the Valencian Region for the period of study. Nevertheless, the corresponding `R` coded is appended below for illustrating purposes.
+```{r}
+load("../Data/ObsExp.Rdata")
+
+result.tot = list()
+for (i in 1:46) {
+    result.tot[[i]] = list()
+    Obs.muni = apply(Observed[[i]], 1, sum)
+    Exp.muni = apply(Expected[[i]], 1, sum)
+    
+    # Model 1
+    data1 = data.frame(O = Obs.muni, E = Exp.muni, Cov = lat)
+    result.tot[[i]][[1]] = inla(form1, data = data1, family = "poisson", E = E, control.compute = list(dic = TRUE))
+    
+    # Model 2
+    data2 = data.frame(O = Obs.muni, E = Exp.muni, Cov = lat, id.node = 1:length(lat))
+    result.tot[[i]][[2]] = inla(form2, data = data2, family = "poisson", E = E, control.compute = list(dic = TRUE))
+    
+    # Model 3
+    A.orth = rbind(c(rep(0, 540), lat))
+    result.tot[[i]][[3]] = inla(form3, data = data2, family = "poisson", E = E, control.compute = list(dic = TRUE))
+    
+    # Model 4
+    A.orth = rbind(c(rep(0, 540), Exp.muni), c(rep(0, 540), lat * Exp.muni))
+    result.tot[[i]][[4]] = inla(form4, data = data2, family = "poisson", E = E, control.compute = list(dic = TRUE))
+    
+    # Model 5
+    A.orth = rbind(c(rep(0, 540), Exp.muni * result.tot[[i]][[2]]$summary.fitted.values[, 6]), c(rep(0, 540), lat * Exp.muni * result.tot[[i]][[2]]$summary.fitted.values[, 6]))
+    result.tot[[i]][[5]] = inla(form5, data = data2, family = "poisson", E = E, control.compute = list(dic = TRUE))
+}
+```
+
+##Relative bias and Variance inflation (Results in Table 5.3)
+```{r}
+result.summary = list()
+for (i in 1:46) {
+    result.summary[[i]] = cbind(rep(1:5, each = 2), round(c(result.tot[[i]][[1]]$summary.fixed$mean, result.tot[[i]][[2]]$summary.fixed$mean, result.tot[[i]][[3]]$summary.fixed$mean, result.tot[[i]][[4]]$summary.fixed$mean, 
+        result.tot[[i]][[5]]$summary.fixed$mean), 3), round(c(result.tot[[i]][[1]]$summary.fixed$sd, result.tot[[i]][[2]]$summary.fixed$sd, result.tot[[i]][[3]]$summary.fixed$sd, result.tot[[i]][[4]]$summary.fixed$sd, 
+        result.tot[[i]][[5]]$summary.fixed$sd), 3))
+}
+
+bias = matrix(nrow = 46, ncol = 8)
+for (i in 1:46) {
+    bias[i, ] = c(c(result.summary[[i]][4, 2], result.summary[[i]][6, 2], result.summary[[i]][8, 2], result.summary[[i]][10, 2]) - result.summary[[i]][2, 2], (c(result.summary[[i]][4, 2], result.summary[[i]][6, 
+        2], result.summary[[i]][8, 2], result.summary[[i]][10, 2]) - result.summary[[i]][2, 2])/result.summary[[i]][2, 2])
+}
+# Absolute and relative bias, as compared to the results of Model 1
+apply(bias, 2, function(x) {
+    mean(abs(x))
+})
+
+sds = matrix(nrow = 46, ncol = 5)
+for (i in 1:46) {
+    sds[i, ] = c(result.summary[[i]][2, 3], result.summary[[i]][4, 3], result.summary[[i]][6, 3], result.summary[[i]][8, 3], result.summary[[i]][10, 3])
+}
+# Variance inflation in comparison to the results of Model 1
+apply(sds, 2, function(x) {
+    mean(x)
+})/mean(sds[, 1])
+```
+
+## Reanalysis of Example 5.1 with Model 4
+```{r}
+# For reproducing the document, the following line should be changed to load('../Data/ObsExpAtherosclosis-mod.Rdata') since that file contains the modified data making it possible to reproduce this analysis.
+load("../Data/ObsExpAtherosclosis.Rdata")
+
+result.GLM = list()
+for (i in 1:10) {
+    set.seed(i)
+    x = rnorm(540)
+    
+    # Model 4
+    A.orth = rbind(c(rep(0, 540), Exp.muni), c(rep(0, 540), x * Exp.muni))
+    result.GLM[[i]] = inla(form4, data = data2, family = "poisson", E = E, control.compute = list(dic = TRUE))
+    
+}
+
+for (i in 1:10) {
+    print(round(result.GLM[[i]]$summary.fixed, 3))
+}
+```
+
+
+

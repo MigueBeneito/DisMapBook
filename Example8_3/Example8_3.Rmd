@@ -1,0 +1,163 @@
+---
+title: "Example 8.3"
+subtitle: "Disease mapping: from foundations to multidimensional modeling"
+author: Martinez-Beneito M.A. and Botella-Rocamora P.
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+  
+This document reproduces the analysis made at Example 8.3 of the book: "Disease mapping: from foundations to multidimensional modeling" by Martinez-Beneito M.A. and Botella-Rocamora P., published by CRC press in 2019. You can watch the analysis made with full detail at this pdf document, or even execute it if you want with the material available at <https://github.com/MigueBeneito/DMBook>. Anyway, this pdf file should be enough for following most of the details of the analysis made for this example.
+
+The statistical analysis below has been run in `R`, by additionally using the library `Rmarkdown`, so be sure that you have this software installed if you want to reproduce by yourself the content of this document. In that case we advise you to download first the annex material at <https://github.com/MigueBeneito/DMBook>, open with `Rstudio` the corresponding `.Rproj` file that you will find at the folder corresponding to this example and compile the corresponding `.Rmd` document. This will allow you to reproduce the whole statistical analysis below.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, width = 80, tidy = TRUE, tidy.opts = list(width.cutoff = 75))
+set.seed(1)
+```
+
+This document has been executed with real data that are not provided in order to preserve their confidentiality. Slightly modified data are provided instead, as described in Chapter 1 of the book. Thus, when reproducing this document you will not obtain exactly the same results, although they should be very close to those shown here.
+
+##Libraries and data loading
+```{r libraries and data loading, warning=FALSE, message=FALSE}
+#Libraries loading
+#-----------------
+if(!require(RColorBrewer)){install.packages("RColorBrewer");library(RColorBrewer)}
+if(!require(rgdal)){install.packages("rgdal");library(rgdal)}
+if(!require(spdep)){install.packages("spdep");library(spdep)}
+if(!require(pbugs)){
+    if(!require(devtools)){
+        install.packages("devtools");devtools::install_github("fisabio/pbugs")
+    }
+    else{
+        install_github("fisabio/pbugs")
+    }
+}
+
+#Data loading
+#------------
+#For reproducing the document, the following line should be changed to load("../Data/Obs.SANOVA-mod.Rdata") since that file contains the modified data making it possible to reproduce this document.
+load("../Data/Obs.SANOVA.Rdata")
+#load("../Data/Obs.SANOVA-mod.Rdata")
+load("../Data/Exp.SANOVA.Rdata")
+#Cartography
+load("../Data/AIDS.Rdata")
+```
+
+##Adjacency matrix in `WinBUGS` format
+```{r}
+
+carto.val.wb = nb2WB(poly2nb(carto.val,snap = 1))
+```
+
+##Definition of a design matrix for the contrasts between spatial patterns
+```{r}
+matH = matrix(nrow = 8, ncol = 8)
+# Joint pattern
+matH[, 1] = c(1, 1, 1, 1, 1, 1, 1, 1)
+# Differences between diseases
+matH[, 2] = c(1, 1, 1, 1, -1, -1, -1, -1)
+# Differences between sexes
+matH[, 3] = c(1, 1, -1, -1, 1, 1, -1, -1)
+# Differences between periods
+matH[, 4] = c(1, -1, 1, -1, 1, -1, 1, -1)
+# Interaction disease-sex
+matH[, 5] = c(1, 1, -1, -1, -1, -1, 1, 1)
+# Interaction disease-period
+matH[, 6] = c(1, -1, -1, 1, 1, -1, -1, 1)
+# Interaction sex-period
+matH[, 7] = c(1, -1, -1, 1, -1, 1, 1, -1)
+# Interaction disease-sex-period
+matH[, 8] = c(1, -1, 1, -1, -1, 1, -1, 1)
+# Normalization of H columns
+matH <- 1/sqrt(8) * (matH)
+```
+
+##SANOVA inference in `WinBUGS`
+```{r}
+SANOVAModel <- function(){
+  for(i in 1:nAreas){
+    for (j in 1:nPatterns){
+      Obs[i,j] ~ dpois(lambda[i,j])
+      log(lambda[i,j]) <- log(Exp[i,j])+log.theta[i,j]
+      log.theta[i,j] <- mu[j]+Phi[i,j]
+      Phi[i,j] <- inprod2(BYM[i,],Ht[,j])
+      BYM[i,j] <- sd.sp[j]*spat[j,i]+sd.het[j]*unstruct[i,j]
+      unstruct[i,j] ~ dnorm(0,1)
+      
+      sSMR[i,j] <- 100*exp(mu[j]+Phi[i,j])
+    }
+  }
+  
+  for (j in 1:nPatterns){    
+    spat[j,1:nAreas] ~ car.normal(adj[],weights[],num[],1)  
+    #Prior distributions
+    mu[j] ~ dflat()
+    sd.sp[j] ~ dunif(0,5)
+    sd.het[j] ~ dunif(0,5)
+  }
+}
+
+data = list(Obs = Obs.SANOVA, Exp = Exp.SANOVA, nAreas = dim(Obs.SANOVA)[1], nPatterns = dim(Obs.SANOVA)[2], adj = carto.val.wb$adj, weights = rep(1, length(carto.val.wb$adj)), num = carto.val.wb$num, 
+    Ht = t(matH))
+inits = function() {
+    list(mu = rnorm(dim(Obs.SANOVA)[2]), sd.sp = runif(dim(Obs.SANOVA)[2]), sd.het = runif(dim(Obs.SANOVA)[2]), spat = matrix(rnorm(prod(dim(Obs.SANOVA))), nrow = dim(Obs.SANOVA)[2]), unstruct = matrix(rnorm(prod(dim(Obs.SANOVA))), 
+        ncol = dim(Obs.SANOVA)[2]))
+}
+param = c("sSMR", "mu", "sd.sp", "sd.het", "Phi", "BYM")
+
+Resul.SANOVA = pbugs(data = data, inits = inits, parameters = param, model.file = SANOVAModel, n.iter = 10000, n.burnin = 1000, DIC = F, bugs.seed = 1)
+# Computing time
+Resul.SANOVA$exec_time
+# Result summaries
+summary(Resul.SANOVA$summary[, "Rhat"])
+summary(Resul.SANOVA$summary[, "n.eff"])
+```
+
+#Variance decomposition
+```{r}
+par(mfrow = c(1, 1))
+patterns = Resul.SANOVA$mean$BYM
+var.decomp = apply(patterns, 2, var)/sum(apply(patterns, 2, var))
+names(var.decomp) = c("Common", "Diseases", "Sexes", "Periodo", "Int.1", "Int.2", "Int.3", "Int.4")
+apply(patterns, 2, var)
+var.decomp
+```
+
+##Choropleth maps
+```{r}
+colors = brewer.pal(7, "BrBG")[7:1]
+
+par(mfrow = c(2, 2))
+par(mar = c(5, 4, 4, 2) + 0.1)
+# Common
+pattern = exp(Resul.SANOVA$mean$BYM[, 1])
+cuts = as.numeric(cut(100 * pattern, 100 * c(-0.1, 1/1.5, 1/1.25, 1/1.1, 1.1, 1.25, 1.5, 100)))
+plot(carto.val, xlim = c(721500, 736000), ylim = c(4368000, 4378000), col = colors[cuts])
+title("Common pattern", cex = 0.75)
+legend(x = "bottomright", fill = colors[7:1], legend = c(">150", "125-150", "110-125", "91-110", "80-91", "66-80", "<66"), cex = 0.75, inset = 0.03)
+
+# Diseases
+pattern <- exp(Resul.SANOVA$mean$BYM[, 2])
+cuts <- as.numeric(cut(100 * pattern, 100 * c(-0.1, 1/1.5, 1/1.25, 1/1.1, 1.1, 1.25, 1.5, 100)))
+plot(carto.val, xlim = c(721500, 736000), ylim = c(4368000, 4378000), col = colors[cuts])
+title("Dif.between diseases \n (COPD vs Lung)", cex = 0.75)
+legend(x = "bottomright", fill = colors[7:1], legend = c(">150", "125-150", "110-125", "91-110", "80-91", "66-80", "<66"), cex = 0.75, inset = 0.03)
+
+# Sex
+pattern = exp(Resul.SANOVA$mean$BYM[, 3])
+cuts = as.numeric(cut(100 * pattern, 100 * c(-0.1, 1/1.5, 1/1.25, 1/1.1, 1.1, 1.25, 1.5, 100)))
+plot(carto.val, xlim = c(721500, 736000), ylim = c(4368000, 4378000), col = colors[cuts])
+title("Dif.between sexes", cex = 0.75)
+legend(x = "bottomright", fill = colors[7:1], legend = c(">150", "125-150", "110-125", "91-110", "80-91", "66-80", "<66"), cex = 0.75, inset = 0.03)
+
+# Period
+pattern = exp(Resul.SANOVA$mean$BYM[, 4])
+cuts = as.numeric(cut(100 * pattern, 100 * c(-0.1, 1/1.5, 1/1.25, 1/1.1, 1.1, 1.25, 1.5, 100)))
+plot(carto.val, xlim = c(721500, 736000), ylim = c(4368000, 4378000), col = colors[cuts])
+title("Dif.between periods", cex = 0.75)
+legend(x = "bottomright", fill = colors[7:1], legend = c(">150", "125-150", "110-125", "91-110", "80-91", "66-80", "<66"), cex = 0.75, inset = 0.03)
+```
+
+
+

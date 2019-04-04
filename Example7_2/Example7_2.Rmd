@@ -1,0 +1,294 @@
+---
+title: "Example 7.2"
+subtitle: "Disease mapping: from foundations to multidimensional modeling"
+author: Martinez-Beneito M.A. and Botella-Rocamora P.
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+  
+This document reproduces the analysis made at Example 7.2 of the book: "Disease mapping: from foundations to multidimensional modeling" by Martinez-Beneito M.A. and Botella-Rocamora P., published by CRC press in 2019. You can watch the analysis made with full detail at this pdf document, or even execute it if you want with the material available at <https://github.com/MigueBeneito/DMBook>. Anyway, this pdf file should be enough for following most of the details of the analysis made for this example.
+
+The statistical analysis below has been run in `R`, by additionally using the library `Rmarkdown`, so be sure that you have this software installed if you want to reproduce by yourself the content of this document. In that case we advise you to download first the annex material at <https://github.com/MigueBeneito/DMBook>, open with `Rstudio` the corresponding `.Rproj` file that you will find at the folder corresponding to this example and compile the corresponding `.Rmd` document. This will allow you to reproduce the whole statistical analysis below.
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, width = 80, tidy = TRUE, tidy.opts = list(width.cutoff = 70))
+set.seed(1)
+```
+
+This document has been executed with real data that are not provided in order to preserve data confidentiality. Slightly modified data are provided instead, as described in Chapter 1 of the book. Thus, when reproducing this document you will not obtain exactly the same results, although they should be very close to those shown here.
+
+##Libraries and data loading
+```{r libraries and data loading, warning=FALSE, message=FALSE}
+#Libraries loading
+#-----------------
+if(!require(RColorBrewer)){install.packages("RColorBrewer");library(RColorBrewer)}
+if(!require(rgdal)){install.packages("rgdal");library(rgdal)}
+if(!require(INLA)){install.packages("INLA",repos=c(getOption("repos"), INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE);library(INLA)}
+if(!require(pbugs)){
+    if(!require(devtools)){
+        install.packages("devtools");devtools::install_github("fisabio/pbugs")
+    }
+    else{
+        install_github("fisabio/pbugs")
+    }
+}
+
+#Data loading
+#------------
+#For reproducing the document, the following line should be changed to load("../Data/ObsOral-ET-mod.Rdata") since that file contains the modified data making it possible to reproduce this document.
+load("../Data/ObsOral-ET.Rdata")
+#load("../Data/ObsOral-mod.Rdata")
+load("../Data/ExpOral-ET.Rdata")
+load("../Data/VR.Rdata")
+```
+
+##`R` function for calculating the DIC criterion of the models fitted
+The function below computes the DIC criterion for disease mapping models fitted with `WinBUGS`. It returns DIC values comparable to those reported by `INLA`, in contrast to `WinBUGS`. See annex material for Example 4.3.
+```{r}
+# Arguments: Simu.sSMRs: matrix of dimensions n.IterXn.Units where n.Iter are the number of MCMC iterations saved and n.Units the number of spatial units in the analysis. You will typically find this
+# as a submatrix of the sims.matrix element of any bugs object. O: Vector of length n.Units with the observed deaths per spatial unit. E: Vector of length n.Units with the expected deaths per spatial
+# unit.
+DICPoisson = function(Simu.sSMRs, O, E) {
+    mu = t(apply(Simu.sSMRs/100, 1, function(x) {
+        x * E
+    }))
+    D = apply(mu, 1, function(x) {
+        -2 * sum(O * log(x) - x - lfactorial(O))
+    })
+    Dmean = mean(D)
+    mumean = apply(Simu.sSMRs/100, 2, mean) * E
+    DinMean = -2 * sum(O * log(mumean) - mumean - lfactorial(O))
+    # if(save==TRUE){return(c(Dmedia,Dmedia-DenMedia,2*Dmedia-DenMedia))}
+    cat("D=", Dmean, "pD=", Dmean - DinMean, "DIC=", 2 * Dmean - DinMean, "\n")
+}
+```
+
+##`WinBUGS` execution of the model with linear time trends
+```{r}
+#Model with linear time trends
+LinearTrends = function(){
+  for(i in 1:nRegions){
+    for(j in 1:nPeriods){
+      Obs[i,j] ~ dpois(lambda[i,j])
+      log(lambda[i,j]) <- log(Exp[i,j])+log.theta[i,j]
+      log.theta[i,j] <- (mu.alpha+alpha[i])+(mu.beta+beta[i])*(j-(nPeriods+1)/2)
+      sSMR[i,j] <- 100*exp(log.theta[i,j])
+    }
+    #BYM components in the coefficients of the linear predictor
+    alpha[i] <- sd.alpha.spat*alpha.spat[i]+sd.alpha.het*alpha.het[i]
+    beta[i] <- sd.beta.spat*beta.spat[i]+sd.beta.het*beta.het[i]
+    #Heterogenous random effects
+    alpha.het[i] ~ dnorm(0,1)
+    beta.het[i] ~ dnorm(0,1)
+  }
+  #Spatial random effects
+  alpha.spat[1:nRegions] ~ car.normal(adj[],w[],num[],1)
+  beta.spat[1:nRegions] ~ car.normal(adj[],w[],num[],1)
+  
+  #Prior distributions
+  mu.alpha ~ dflat()
+  mu.beta ~ dflat()
+  sd.alpha.spat ~ dunif(0,5)
+  sd.alpha.het ~ dunif(0,5)
+  sd.beta.spat ~ dunif(0,5)
+  sd.beta.het ~ dunif(0,5)
+}
+
+data = list(Obs = ObsOral, Exp = ExpOral, nRegions = 540, nPeriods = 12, w = rep(1, length(VR.wb$adj)), num = VR.wb$num, adj = VR.wb$adj)
+inits = function() {
+    list(mu.alpha = rnorm(1), mu.beta = rnorm(1), sd.alpha.spat = runif(1, 0, 2), sd.beta.spat = runif(1, 0, 2), sd.alpha.het = runif(1, 0, 2), sd.beta.het = runif(1, 0, 2), alpha.spat = rnorm(540, 0, 
+        1), beta.spat = rnorm(540, 0, 1), alpha.het = rnorm(540, 0, 1), beta.het = rnorm(540, 0, 1))
+}
+
+param = c("log.theta", "mu.alpha", "mu.beta", "sd.alpha.spat", "sd.beta.spat", "sd.alpha.het", "sd.beta.het")
+
+ResulLinear = pbugs(data = data, inits = inits, parameters = param, model.file = LinearTrends, n.iter = 10000, n.burnin = 1000, n.sims = 3000, DIC = F, bugs.seed = 1)
+
+# Computing time
+ResulLinear$exec_time
+# Result summaries
+summary(ResulLinear$summary[, "Rhat"])
+summary(ResulLinear$summary[, "n.eff"])
+# DIC The matrices of observed and expected cases have been tansposed so that their elements are arranged in the same order than the first argument of the DICPoisson function.
+DICPoisson(100 * exp(ResulLinear$sims.matrix[, grep("log.theta", dimnames(ResulLinear$sims.matrix)[[2]])]), as.vector(t(ObsOral)), as.vector(t(ExpOral)))
+```
+
+##Variance decomposition for the linear model in time
+```{r}
+decompLin = matrix(nrow = 3, ncol = 3, dimnames = list(c("2.5%", "50%", "97.5%"), c("S", "T", "ST")))
+decompLin.mean = vector(length = 3)
+nIter = dim(ResulLinear$sims.list$log.theta)[1]
+components = matrix(nrow = nIter, ncol = 4)
+for (i in 1:nIter) {
+    m = mean(ResulLinear$sims.list$log.theta[i, , ])
+    S = apply(ResulLinear$sims.list$log.theta[i, , ], 1, mean) - m
+    T = apply(ResulLinear$sims.list$log.theta[i, , ], 2, mean) - m
+    ST = ResulLinear$sims.list$log.theta[i, , ] - (m + matrix(rep(S, length(T)), ncol = length(T)) + matrix(rep(T, length(S)), ncol = length(T), byrow = T))
+    components[i, ] = c(m, var(S), var(T), var(as.vector(ST)))
+}
+aux = components[, c(2:4)]/apply(components[, c(2:4)], 1, sum)
+decompLin = apply(aux, 2, quantile, c(0.025, 0.5, 0.975))
+decompLin.mean = apply(aux, 2, mean) * 100
+decompLin.mean
+decompLin
+```
+
+##`WinBUGS` execution of the model with quadratic time trends
+```{r}
+#Model with quadratic time trends
+QuadTrends = function(){
+  for(i in 1:nRegions){
+    for(j in 1:nPeriods){
+      Obs[i,j] ~ dpois(lambda[i,j])
+      log(lambda[i,j]) <- log(Exp[i,j])+log.theta[i,j]
+      #The linear predictor is truncated to prevent numerical overflows when the log transformated is reverted 
+      log.theta[i,j] <- min(max((mu.alpha+alpha[i])+(mu.beta+beta[i])*(j-(nPeriods+1)/2)+(mu.delta+delta[i])*pow(j-(nPeriods+1)/2,2),-10),10)
+      sSMR[i,j] <- 100*exp(log.theta[i,j])
+    }
+    #BYM components in the coefficients of the linear predictor
+    alpha[i] <- sd.alpha.spat*alpha.spat[i]+sd.alpha.het*alpha.het[i]
+    beta[i] <- sd.beta.spat*beta.spat[i]+sd.beta.het*beta.het[i]
+    delta[i] <- sd.delta.spat*delta.spat[i]+sd.delta.het*delta.het[i]
+    #Heterogenous random effects
+    alpha.het[i] ~ dnorm(0,1)
+    beta.het[i] ~ dnorm(0,1)
+    delta.het[i] ~ dnorm(0,1)
+  }
+  #Spatial random effects
+  alpha.spat[1:nRegions] ~ car.normal(adj[],w[],num[],1)
+  beta.spat[1:nRegions] ~ car.normal(adj[],w[],num[],1)
+  delta.spat[1:nRegions] ~ car.normal(adj[],w[],num[],1)
+  
+  #Prior distributions
+  mu.alpha ~ dflat()
+  mu.beta ~ dflat()
+  mu.delta ~ dflat()
+  sd.alpha.spat ~ dunif(0,5)
+  sd.alpha.het ~ dunif(0,5)
+  sd.beta.spat ~ dunif(0,5)
+  sd.beta.het ~ dunif(0,5)
+  sd.delta.spat ~ dunif(0,5)
+  sd.delta.het ~ dunif(0,5)
+}
+
+data = list(Obs = ObsOral, Exp = ExpOral, nRegions = 540, nPeriods = 12, w = rep(1, length(VR.wb$adj)), num = VR.wb$num, adj = VR.wb$adj)
+inits = function() {
+    list(mu.alpha = rnorm(1), mu.beta = rnorm(1), mu.delta = rnorm(1), sd.alpha.spat = runif(1, 0, 2), sd.beta.spat = runif(1, 0, 2), sd.delta.spat = runif(1, 0, 2), sd.alpha.het = runif(1, 0, 2), sd.beta.het = runif(1, 
+        0, 2), sd.delta.het = runif(1, 0, 2), alpha.spat = rnorm(540, 0, 1), beta.spat = rnorm(540, 0, 1), delta.spat = rnorm(540, 0, 1), alpha.het = rnorm(540, 0, 1), beta.het = rnorm(540, 0, 1), delta.het = rnorm(540, 
+        0, 1))
+}
+param = c("log.theta", "mu.alpha", "mu.beta", "mu.delta", "sd.alpha.spat", "sd.beta.spat", "sd.delta.spat", "sd.alpha.het", "sd.beta.het", "sd.delta.het")
+ResulQuad = pbugs(data = data, inits = inits, parameters = param, model.file = QuadTrends, n.iter = 10000, n.burnin = 1000, DIC = F, n.sims = 3000, bugs.seed = 1)
+
+# Computing time
+ResulQuad$exec_time
+# Result summaries
+summary(ResulQuad$summary[, "Rhat"])
+summary(ResulQuad$summary[, "n.eff"])
+# DIC The matrices of observed and expected cases have been tansposed so that their elements are arranged in the same order than the first argument of the DICPoisson function.
+DICPoisson(100 * exp(ResulQuad$sims.matrix[, grep("log.theta", dimnames(ResulQuad$sims.matrix)[[2]])]), as.vector(t(ObsOral)), as.vector(t(ExpOral)))
+```
+
+##Variance decomposition for the quadratic model in time
+```{r}
+decompQuad = matrix(nrow = 3, ncol = 3, dimnames = list(c("2.5%", "50%", "97.5%"), c("S", "T", "ST")))
+decompQuad.mean = vector(length = 3)
+nIter = dim(ResulQuad$sims.list$log.theta)[1]
+components = matrix(nrow = nIter, ncol = 4)
+for (i in 1:nIter) {
+    m = mean(ResulQuad$sims.list$log.theta[i, , ])
+    S = apply(ResulQuad$sims.list$log.theta[i, , ], 1, mean) - m
+    T = apply(ResulQuad$sims.list$log.theta[i, , ], 2, mean) - m
+    ST = ResulQuad$sims.list$log.theta[i, , ] - (m + matrix(rep(S, length(T)), ncol = length(T)) + matrix(rep(T, length(S)), ncol = length(T), byrow = T))
+    components[i, ] = c(m, var(S), var(T), var(as.vector(ST)))
+}
+aux = components[, c(2:4)]/apply(components[, c(2:4)], 1, sum)
+decompQuad = apply(aux, 2, quantile, c(0.025, 0.5, 0.975))
+decompQuad.mean = apply(aux, 2, mean) * 100
+decompQuad.mean
+```
+
+##Plot of the linear and quadratic time trends per municipality
+```{r}
+par(mfrow = c(1, 2))
+plot(1:12, apply(exp(ResulLinear$sims.list$log.theta[, 1, ]), 2, mean), type = "n", ylim = c(0.5, 2), xlab = "Season", ylab = "Municipal sSMRs")
+title("Linear model in time")
+for (i in 1:540) {
+    lines(1:12, apply(exp(ResulLinear$sims.list$log.theta[, i, ]), 2, mean), col = "grey")
+}
+plot(1:12, apply(exp(ResulQuad$sims.list$log.theta[, 1, ]), 2, mean), type = "n", ylim = c(0.5, 2), xlab = "Season", ylab = "Municipal sSMRs")
+title("Quadratic model in time")
+for (i in 1:540) {
+    lines(1:12, apply(exp(ResulQuad$sims.list$log.theta[, i, ]), 2, mean), col = "grey")
+}
+```
+
+#Choropleth maps with and without temporal component
+```{r}
+par(mfrow = c(2, 2))
+par(mar = c(1, 1, 2, 1) + 0.1)
+per = 1
+sSMR.cut = cut(apply(exp(ResulQuad$sims.list$log.theta[, , per]), 2, mean), c(0, 0.66, 0.8, 0.91, 1.1, 1.25, 1.5, 10))
+plot(VR.cart, col = brewer.pal(7, "BrBG")[7:1][sSMR.cut])
+title("sSMR 1st season", cex = 0.75)
+legend(x = "bottomright", fill = brewer.pal(7, "BrBG"), legend = c(">150", "125-150", "110-125", "91-110", "80-91", "66-80", "<66"), cex = 0.65, inset = 0.03, title = "sSMR")
+per = 12
+sSMR.cut = cut(apply(exp(ResulQuad$sims.list$log.theta[, , per]), 2, mean), c(0, 0.66, 0.8, 0.91, 1.1, 1.25, 1.5, 10))
+plot(VR.cart, col = brewer.pal(7, "BrBG")[7:1][sSMR.cut])
+title("sSMR 12th season", cex = 0.75)
+legend(x = "bottomright", fill = brewer.pal(7, "BrBG"), legend = c(">150", "125-150", "110-125", "91-110", "80-91", "66-80", "<66"), cex = 0.65, inset = 0.03, title = "sSMR")
+
+# Choropleth maps removing the temporal component
+ST.iter = array(dim = c(3000, 540, 12))
+for (i in 1:nIter) {
+    m = mean(ResulQuad$sims.list$log.theta[i, , ])
+    S = apply(ResulQuad$sims.list$log.theta[i, , ], 1, mean) - m
+    T = apply(ResulQuad$sims.list$log.theta[i, , ], 2, mean) - m
+    ST.iter[i, , ] = ResulQuad$sims.list$log.theta[i, , ] - (m + matrix(rep(S, length(T)), ncol = length(T)) + matrix(rep(T, length(S)), ncol = length(T), byrow = T))
+}
+ST = apply(exp(ST.iter), c(2, 3), mean)
+per = 1
+STwithoutT.1.cut = cut(ST[, 1], c(0, 0.87, 0.91, 0.95, 1.05, 1.1, 1.15, 10))
+plot(VR.cart, col = brewer.pal(7, "BrBG")[7:1][STwithoutT.1.cut])
+title("sSMR without spatial and time comp.\n 1st season", cex = 0.75)
+legend(x = "bottomright", fill = brewer.pal(7, "BrBG"), legend = c(">115", "110-115", "115-110", "95-110", "91-95", "87-91", "<87"), cex = 0.65, inset = 0.03, title = "sSMR")
+per = 12
+STwithoutT.12.cut = cut(ST[, 12], c(0, 0.87, 0.91, 0.95, 1.05, 1.1, 1.15, 10))
+plot(VR.cart, col = brewer.pal(7, "BrBG")[7:1][STwithoutT.12.cut])
+title("sSMR without spatial and time comp.\n 12th season", cex = 0.75)
+legend(x = "bottomright", fill = brewer.pal(7, "BrBG"), legend = c(">115", "110-115", "115-110", "95-110", "91-95", "87-91", "<87"), cex = 0.65, inset = 0.03, title = "sSMR")
+```
+
+# INLA implementation of the previous models
+```{r}
+# Uniform prior distribution on the standard deviation
+sdunif = "expression:
+  logdens = -log_precision/2;
+  return(logdens)"
+
+# Covariates
+muni = 1:540
+interval.centered = (1:12) - mean(1:12)
+
+# INLA fit of the linear model in time
+data.lin = data.frame(ObsOral = as.vector(ObsOral), ExpOral = as.vector(ExpOral), muni = rep(muni, 12), muni.dup = rep(muni, 12), interval.centered = rep(interval.centered, each = 540))
+formula.lin = ObsOral ~ 1 + f(muni, model = "bym", graph = "../Data/VR.graph", hyper = list(prec.spatial = list(prior = sdunif), prec.unstruct = list(prior = sdunif))) + interval.centered + f(muni.dup, 
+    interval.centered, model = "bym", graph = "../Data/VR.graph", hyper = list(prec.spatial = list(prior = sdunif), prec.unstruct = list(prior = sdunif)))
+res.lin = inla(formula.lin, family = "poisson", data = data.lin, E = ExpOral, control.compute = list(dic = TRUE))
+
+summary(res.lin)
+ResulLinear$summary[c("mu.alpha", "mu.beta"), ]
+
+# INLA fit of the quadratic model in time
+data.quad = data.frame(ObsOral = as.vector(ObsOral), ExpOral = as.vector(ExpOral), muni = rep(muni, 12), muni.dup = rep(muni, 12), muni.dup2 = rep(muni, 12), interval.centered = rep(interval.centered, 
+    each = 540), interval.centered2 = rep(interval.centered^2, each = 540))
+formula.quad = ObsOral ~ 1 + f(muni, model = "bym", graph = "../Data/VR.graph", hyper = list(prec.spatial = list(prior = sdunif), prec.unstruct = list(prior = sdunif))) + interval.centered + f(muni.dup, 
+    interval.centered, model = "bym", graph = "../Data/VR.graph", hyper = list(prec.spatial = list(prior = sdunif), prec.unstruct = list(prior = sdunif))) + interval.centered2 + f(muni.dup2, interval.centered2, 
+    model = "bym", graph = "../Data/VR.graph", hyper = list(prec.spatial = list(prior = sdunif), prec.unstruct = list(prior = sdunif)))
+res.quad = inla(formula.quad, family = "poisson", data = data.quad, E = ExpOral, control.compute = list(dic = TRUE))
+
+summary(res.quad)
+ResulQuad$summary[c("mu.alpha", "mu.beta", "mu.delta"), ]
+```
+

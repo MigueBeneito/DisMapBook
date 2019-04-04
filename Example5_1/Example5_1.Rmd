@@ -1,0 +1,49 @@
+---
+title: "Example 5.1"
+subtitle: "Disease mapping: from foundations to multidimensional modeling"
+author: Martinez-Beneito M.A. and Botella-Rocamora P.
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This document reproduces the analysis made at Example 5.1 of the book: "Disease mapping: from foundations to multidimensional modeling" by Martinez-Beneito M.A. and Botella-Rocamora P., published by CRC press in 2019. You can watch the analysis made with full detail at this pdf document, or even execute it if you want with the material available at <https://github.com/MigueBeneito/DMBook>. Anyway, this pdf file should be enough for following most of the details of the analysis made for this example.
+
+The statistical analysis below has been run in `R`, by additionally using the library `Rmarkdown`, so be sure that you have this software installed if you want to reproduce by yourself the content of this document. In that case we advise you to download first the annex material at <https://github.com/MigueBeneito/DMBook>, open with `Rstudio` the corresponding `.Rproj` file that you will find at the folder corresponding to this example and compile the corresponding `.Rmd` document. This will allow you to reproduce the whole statistical analysis below.
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, width = 80, tidy = TRUE, tidy.opts = list(width.cutoff = 70))
+set.seed(1)
+```
+
+This document has been executed with real data that are not provided in order to preserve their confidentiality. Slightly modified data are provided instead, as described in Chapter 1 of the book. Thus, when reproducing this document you will not obtain exactly the same results, although they should be very close to those shown here.
+
+##Libraries and data loading
+```{r libraries and data loading, warning=FALSE, message=FALSE}
+#Libraries loading
+#-----------------
+if(!require(INLA)){install.packages("INLA",repos=c(getOption("repos"), INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE);library(INLA)}
+
+#Data loading
+#------------
+# For reproducing the document, the following line should be changed to load("../Data/ObsExpAtherosclosis-mod.Rdata") since that file contains the modified data making it possible to reproduce this document.
+load("../Data/ObsExpAtherosclosis.Rdata")
+```
+
+## Poisson regression as a function of different simulated covariates
+```{r}
+result.GLM = list()
+for (i in 1:10) {
+    set.seed(i)
+    x = rnorm(540)
+    data1 = data.frame(O = Obs.muni, E = Exp.muni, Cov = x)
+    form1 = O ~ Cov
+    result.GLM[[i]] = inla(form1, data = data1, family = "poisson", E = E, control.compute = list(dic = TRUE))
+}
+
+for (i in 1:10) {
+    print(round(result.GLM[[i]]$summary.fixed, 3))
+}
+```
+
+

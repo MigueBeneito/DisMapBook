@@ -1,0 +1,54 @@
+---
+title: "Example 3.6"
+subtitle: "Disease mapping: from foundations to multidimensional modeling"
+author: Martinez-Beneito M.A. and Botella-Rocamora P.
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This document reproduces the analysis made at Example 3.6 of the book: "Disease mapping: from foundations to multidimensional modeling" by Martinez-Beneito M.A. and Botella-Rocamora P., published by CRC press in 2019. You can watch the analysis made with full detail at this pdf document, or even execute it if you want with the material available at <https://github.com/MigueBeneito/DMBook>. Anyway, this pdf file should be enough for following most of the details of the analysis made for this example.
+
+The statistical analysis below has been run in `R`, by additionally using the library `Rmarkdown`, so be sure that you have this software installed if you want to reproduce by yourself the content of this document. In that case we advise you to download first the annex material at <https://github.com/MigueBeneito/DMBook>, open with `Rstudio` the corresponding `.Rproj` file that you will find at the folder corresponding to this example and compile the corresponding `.Rmd` document. This will allow you to reproduce the whole statistical analysis below.
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, width = 80, tidy = TRUE, tidy.opts = list(width.cutoff = 70))
+set.seed(1)
+```
+
+##Libraries and data loading
+```{r libraries and data loading, warning=FALSE, message=FALSE}
+#Libraries loading
+#-----------------
+if(!require(rgdal)){install.packages("rgdal");library(rgdal)}
+if(!require(spdep)){install.packages("spdep");library(spdep)}
+
+#Data loading
+#------------
+# Valencian municipalities borders
+VR.cart = readOGR(dsn = "../Data/Carto", layer = "muni")
+# ordering of the VR.cart object as a function of the municipal codes
+VR.cart = VR.cart[order(VR.cart$CODMUNI), ]
+```
+
+##Calculation of the adjacency matrix of the municipalities in the Valencian Region
+```{r}
+# Determination of the neighbouring municipalities
+VR.nb = poly2nb(VR.cart)
+summary(VR.nb)
+
+# Location of Ademuz and Aras de Alpuente in the cartography
+which(VR.cart@data$NOMBRE == "Ademuz")
+which(VR.cart@data$NOMBRE == "Aras de Alpuente")
+
+# Modification of the set of neighbours of these municipalities by defining them also as neighbours.
+VR.nb[[277]] = sort(c(VR.nb[[277]], as.integer(317)))
+VR.nb[[317]] = sort(c(VR.nb[[317]], as.integer(277)))
+
+# Exporting the neighbours list to a WinBUGS friendly format
+VR.wb = nb2WB(VR.nb)
+
+# Exporting the neighbours list to an INLA friendly format
+nb2INLA(VR.nb, file = "../Data/VR.graph")
+```
+

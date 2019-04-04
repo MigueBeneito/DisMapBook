@@ -1,0 +1,928 @@
+---
+title: "Example 9.1"
+subtitle: "Disease mapping: from foundations to multidimensional modeling"
+author: Martinez-Beneito M.A. and Botella-Rocamora P.
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This document reproduces the analysis made at Example 9.1 of the book: "Disease mapping: from foundations to multidimensional modeling" by Martinez-Beneito M.A. and Botella-Rocamora P., published by CRC press in 2019. You can watch the analysis made with full detail at this pdf document, or even execute it if you want with the material available at <https://github.com/MigueBeneito/DMBook>. Anyway, this pdf file should be enough for following most of the details of the analysis made for this example.
+
+The statistical analysis below has been run in `R`, by additionally using the library `Rmarkdown`, so be sure that you have this software installed if you want to reproduce by yourself the content of this document. In that case we advise you to download first the annex material at <https://github.com/MigueBeneito/DMBook>, open with `Rstudio` the corresponding `.Rproj` file that you will find at the folder corresponding to this example and compile the corresponding `.Rmd` document. This will allow you to reproduce the whole statistical analysis below.
+
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, width = 80, tidy = TRUE, tidy.opts = list(width.cutoff = 75))
+set.seed(1)
+```
+
+This document has been executed with real data that are not provided in order to preserve their confidentiality. Slightly modified data are provided instead, as described in Chapter 1 of the book. Thus, when reproducing this document you will not obtain exactly the same results, although they should be very close to those shown here.
+
+##Libraries and data loading
+```{r libraries and data loading, warning=FALSE, message=FALSE}
+#Libraries loading
+#-----------------
+if(!require(RColorBrewer)){install.packages("RColorBrewer");library(RColorBrewer)}
+if(!require(rgdal)){install.packages("rgdal");library(rgdal)}
+if(!require(pbugs)){
+    if(!require(devtools)){
+        install.packages("devtools");devtools::install_github("fisabio/pbugs")
+    }
+    else{
+        install_github("fisabio/pbugs")
+    }
+}
+
+#Data loading
+#------------
+#For reproducing the document, the following line should be changed to load("../Data/ObsMDM-mod.Rdata") since that file contains the modified data making it possible to reproduce this document.
+load("../Data/ObsMDM.Rdata")
+#load("../Data/ObsOral-mod.Rdata")
+load("../Data/ExpMDM.Rdata")
+load("../Data/VR.Rdata")
+```
+
+##`R` function for calculating the DIC criterion of the models fitted
+The function below computes the DIC criterion for disease mapping models fitted with `WinBUGS`. It returns DIC values comparable to those reported by `INLA`, in contrast to `WinBUGS`. See annex material for Example 4.3.
+```{r}
+#Arguments: 
+#Simu.sSMRs: matrix of dimensions n.IterXn.Units where n.Iter are the number of MCMC iterations saved and n.Units the number of spatial units in the analysis. You will typically find this as a submatrix of the sims.matrix element of any bugs object.
+#O: Vector of length n.Units with the observed deaths per spatial unit.
+#E: Vector of length n.Units with the expected deaths per spatial unit.
+DICPoisson = function(Simu.sSMRs,O,E){
+  mu = t(apply(Simu.sSMRs/100,1,function(x){x*E}))
+  D = apply(mu,1,function(x){-2*sum(O*log(x)-x-lfactorial(O))})
+  Dmean= mean(D)
+  mumean = apply(Simu.sSMRs/100,2,mean)*E
+  DinMean = -2*sum(O*log(mumean)-mumean-lfactorial(O))
+  #if(save==TRUE){return(c(Dmedia,Dmedia-DenMedia,2*Dmedia-DenMedia))}
+  cat("D=",Dmean,"pD=",Dmean-DinMean,"DIC=",2*Dmean-DinMean,"\n")
+}
+```
+
+#Function monitoring the convergence of the deviance of multidimensional models
+```{r}
+plot.deviance <- function(resul) {
+    deviances <- matrix(nrow = dim(resul$sims.array)[1], ncol = dim(resul$sims.array)[2])
+    for (j in 1:(dim(resul$sims.array)[2])) {
+        for (i in 1:(dim(resul$sims.array)[1])) {
+            sSMR <- aperm(array(resul$sims.array[i, j, grep("sSMR", dimnames(resul$summary)[[1]])], dim = dim(Obs.md)[4:1]), 4:1)
+            deviances[i, j] <- -2 * sum(dpois(as.vector(Obs.md), as.vector((sSMR/100) * Exp.md), log = T))
+        }
+    }
+    plot(deviances[, 1], type = "l", ylim = c(min(deviances), max(deviances)), ylab = "Deviance", xlab = "Iteration saved")
+    for (j in 2:(dim(resul$sims.array)[2])) {
+        lines(deviances[, j], col = j)
+    }
+}
+```
+
+##Definition of some constants that will be extensively used for the rest of the analysis
+```{r}
+num.simu <- 15000
+num.burnin <- 5000
+
+Nmuni <- 540
+Nper <- 5
+Ndiseases <- 2
+Nsex <- 2
+nGroups <- c(Nmuni, Nper, Ndiseases, Nsex)  #Municipalities, Periods, Diseases, Sexes
+
+num <- VR.wb$num
+adj <- VR.wb$adj
+
+# We define the data for the multidimensional models here since they will be common to all the models run
+data <- list(Obs = Obs.md, Exp = Exp.md, nGroups = nGroups, adj = adj, num = num, C = rep(1/num, num), M = 1/num)
+```
+
+##Fully separable model
+```{r}
+model1.2.3.4 = function(){
+  for(k in 1:(nGroups[4])){#Sex
+    for(j in 1:(nGroups[3])){#Disease
+      for (p in 1:(nGroups[2])){#Period
+        for(i in 1:(nGroups[1])){#Municipality
+          Obs[i,p,j,k] ~ dpois(lambda[i,p,j,k])
+          log(lambda[i,p,j,k]) <- log(Exp[i,p,j,k])+log.theta[i,p,j,k]
+          log.theta[i,p,j,k] <- mu[p,j,k]+S1234[i,p,j,k]  
+          #Adds dependence between sexes
+          S1234[i,p,j,k] = inprod2(S123[i,p,j,],structure4[,k])
+          #Adds dependence between diseases
+          S123[i,p,j,k] = inprod2(S12[i,p,,k],structure3[,j])
+          #Adds dependence between periods
+          S12[i,p,j,k] = inprod2(tS1[k,j,,i],structure2[,p])
+
+          sSMR[i,p,j,k] = 100*exp(log.theta[i,p,j,k])
+        }
+        mu[p,j,k] = dflat()
+        #Spatially dependent underlying random effects
+        tS1[k,j,p,1:(nGroups[1])] = car.proper(ceros[],C[],adj[],num[],M[],1,gamma)
+      }
+    }
+  }
+  
+  #Parameters for the PCAR distributions
+  for(l in 1:(nGroups[1])){ceros[l] = 0}
+  gamma.inf = min.bound(C[],adj[],num[],M[])
+  gamma.sup = max.bound(C[],adj[],num[],M[])
+  gamma = dunif(gamma.inf,gamma.sup)
+  
+  #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
+  for (pc in 1:(nGroups[2])){
+    #First Row
+    structure2[1,pc] = pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    #Rest of columns
+    for (pr in 2:(nGroups[2])){
+      structure2[pr,pc] = step(pc-pr)*pow(ro,pc-pr)
+    }
+  }
+  ro = dunif(-1,1)
+  
+  #Structure matrix for the third dimension (disease): 
+  for (i in 1:(nGroups[3])){
+    for (j in 1:(nGroups[3])){
+      structure3[i,j] ~ dnorm(0,prec) 
+    }
+  }
+  
+  #Structure matrix for the fourth dimension (sex):
+  for (i in 1:(nGroups[4])){
+    for (j in 1:(nGroups[4])){
+      structure4[i,j] ~ dnorm(0,prec)
+    }
+  }
+  
+  #Prior distribution for the random effects variability 
+  prec <- pow(sdstruct,-2)
+  sdstruct ~ dunif(0,100)
+}
+
+inits <- function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
+        Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(1, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+}
+param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+
+res1.2.3.4 <- pbugs(data = data, inits = inits, par = param, model = model1.2.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+# Computing time
+res1.2.3.4$exec_time
+# Convergence assessment of identifiable parameters
+aux <- c(grep("mu", dimnames(res1.2.3.4$summary)[[1]]), grep("gamma", dimnames(res1.2.3.4$summary)[[1]]), grep("ro", dimnames(res1.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res1.2.3.4$summary)[[1]]), 
+    grep("sSMR", dimnames(res1.2.3.4$summary)[[1]]))
+summary(res1.2.3.4$summary[aux, "Rhat"])
+summary(res1.2.3.4$summary[aux, "n.eff"])
+plot.deviance(res1.2.3.4)
+```
+
+##Spatial structure nested within period
+```{r}
+model12.2.3.4 = function(){
+  for(k in 1:(nGroups[4])){#Sex
+    for(j in 1:(nGroups[3])){#Disease
+      for (p in 1:(nGroups[2])){#Period
+        for(i in 1:(nGroups[1])){#Municipality
+          Obs[i,p,j,k] ~ dpois(lambda[i,p,j,k])
+          log(lambda[i,p,j,k]) <- log(Exp[i,p,j,k])+log.theta[i,p,j,k]
+          log.theta[i,p,j,k] <- mu[p,j,k]+S1234[i,p,j,k]
+          #Adds dependence between sexes
+          S1234[i,p,j,k] <- inprod2(S123[i,p,j,],structure4[,k])
+          #Adds dependence between diseases
+          S123[i,p,j,k] <- inprod2(S12[i,p,,k],structure3[,j])
+          #Adds dependence between periods
+          S12[i,p,j,k] <- inprod2(tS1[k,j,,i],structure2[,p])
+
+          sSMR[i,p,j,k] <- 100*exp(log.theta[i,p,j,k])
+        }
+        mu[p,j,k] ~ dflat()
+        #Spatially dependent underlying random effects
+        tS1[k,j,p,1:(nGroups[1])] ~ car.proper(ceros[],C[],adj[],num[],M[],1,gamma[p])
+      }
+    }
+  }
+  
+  #Parameters for the PCAR distributions
+  for(l in 1:(nGroups[1])){ceros[l] <- 0}
+  gamma.inf <- min.bound(C[],adj[],num[],M[])
+  gamma.sup <- max.bound(C[],adj[],num[],M[])
+  for (p in 1:(nGroups[2])){
+    gamma[p] ~ dunif(gamma.inf,gamma.sup)
+  }
+  
+  #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
+  for (pc in 1:(nGroups[2])){
+    #First Row
+    structure2[1,pc] <- pow(ro,pc-1)
+    #Rest of columns
+    for (pr in 2:(nGroups[2])){
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)*pow((1-ro*ro),0.5)
+    }
+  }
+  ro ~ dunif(-1,1)
+  
+  #Dimension 3 (Disease): 
+  for (i in 1:(nGroups[3])){
+    for (j in 1:(nGroups[3])){
+      structure3[i,j] ~ dnorm(0,prec) 
+    }
+  }
+  
+  #Dimension 4 (Sex): 
+  for (i in 1:(nGroups[4])){
+    for (j in 1:(nGroups[4])){
+      structure4[i,j] ~ dnorm(0,prec)
+    }
+  }
+  
+  #Prior distribution for the random effects variability
+  prec <- pow(sdstruct,-2)
+  sdstruct ~ dunif(0,100)
+}  
+
+inits <- function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
+        Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(Nper, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+}
+param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+
+res12.2.3.4 <- pbugs(data = data, inits = inits, par = param, model = model12.2.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+# Computing time
+res12.2.3.4$exec_time
+# Convergence assessment of identifiable parameters
+aux <- c(grep("mu", dimnames(res12.2.3.4$summary)[[1]]), grep("ro", dimnames(res12.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res12.2.3.4$summary)[[1]]), grep("sSMR", dimnames(res12.2.3.4$summary)[[1]]))
+summary(res12.2.3.4$summary[aux, "Rhat"])
+summary(res12.2.3.4$summary[aux, "n.eff"])
+plot.deviance(res12.2.3.4)
+```
+
+```{r}
+par(mfrow = c(2, 3))
+plot(res12.2.3.4$sims.array[, 1, "gamma[1]"], type = "l")
+lines(res12.2.3.4$sims.array[, 2, "gamma[1]"], col = 2)
+lines(res12.2.3.4$sims.array[, 3, "gamma[1]"], col = 3)
+plot(res12.2.3.4$sims.array[, 1, "gamma[2]"], type = "l")
+lines(res12.2.3.4$sims.array[, 2, "gamma[2]"], col = 2)
+lines(res12.2.3.4$sims.array[, 3, "gamma[2]"], col = 3)
+plot(res12.2.3.4$sims.array[, 1, "gamma[3]"], type = "l")
+lines(res12.2.3.4$sims.array[, 2, "gamma[3]"], col = 2)
+lines(res12.2.3.4$sims.array[, 3, "gamma[3]"], col = 3)
+plot(res12.2.3.4$sims.array[, 1, "gamma[4]"], type = "l")
+lines(res12.2.3.4$sims.array[, 2, "gamma[4]"], col = 2)
+lines(res12.2.3.4$sims.array[, 3, "gamma[4]"], col = 3)
+plot(res12.2.3.4$sims.array[, 1, "gamma[5]"], type = "l")
+lines(res12.2.3.4$sims.array[, 2, "gamma[5]"], col = 2)
+lines(res12.2.3.4$sims.array[, 3, "gamma[5]"], col = 3)
+plot(res12.2.3.4$sims.array[, 1, "ro"], type = "l", ylim = c(-1, 1))
+lines(res12.2.3.4$sims.array[, 2, "ro"], col = 2)
+lines(res12.2.3.4$sims.array[, 3, "ro"], col = 3)
+
+
+```
+
+##Spatial structure nested within disease
+```{r, eval=FALSE}
+model13.2.3.4 = function(){
+  for(k in 1:(nGroups[4])){#Sex
+    for(j in 1:(nGroups[3])){#Disease
+      for (p in 1:(nGroups[2])){#Period
+        for(i in 1:(nGroups[1])){#Municipality
+          Obs[i,p,j,k] ~ dpois(lambda[i,p,j,k])
+          log(lambda[i,p,j,k]) <- log(Exp[i,p,j,k])+log.theta[i,p,j,k]
+          log.theta[i,p,j,k] <- mu[p,j,k]+S1234[i,p,j,k]
+          #Adds dependence between sexes
+          S1234[i,p,j,k] <- inprod2(S123[i,p,j,],structure4[,k])          
+          #Adds dependence between diseases
+          S123[i,p,j,k] <- inprod2(S12[i,p,,k],structure3[,j])
+          #Adds dependence between periods
+          S12[i,p,j,k] <- inprod2(tS1[k,j,,i],structure2[,p])
+          
+          sSMR[i,p,j,k] <- 100*exp(log.theta[i,p,j,k])
+
+        }
+        mu[p,j,k] ~ dflat()
+        #Spatially dependent underlying random effects
+        tS1[k,j,p,1:(nGroups[1])] ~ car.proper(ceros[],C[],adj[],num[],M[],1,gamma[j])
+      }
+    }
+  }
+  
+  #Parameters for the PCAR distributions
+  for(l in 1:(nGroups[1])){ceros[l] <- 0}
+  gamma.inf <- min.bound(C[],adj[],num[],M[])
+  gamma.sup <- max.bound(C[],adj[],num[],M[])
+  for (j in 1:(nGroups[3])){
+    gamma[j] ~ dunif(gamma.inf,gamma.sup)
+  }
+  
+  #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
+  for (pc in 1:(nGroups[2])){
+    #First Row
+    structure2[1,pc] <- pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    #Rest of columns
+    for (pr in 2:(nGroups[2])){
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)
+    }
+  }
+  ro ~ dunif(-1,1)
+  
+  #Dimension 3 (Disease): 
+  for (i in 1:(nGroups[3])){
+    for (j in 1:(nGroups[3])){
+      structure3[i,j] ~ dnorm(0,prec) 
+    }
+  }
+  
+  #Dimension 4 (Sex): 
+  for (i in 1:(nGroups[4])){
+    for (j in 1:(nGroups[4])){
+      structure4[i,j] ~ dnorm(0,prec)
+    }
+  }
+
+  #Prior distribution for the random effects variability 
+  prec <- pow(sdstruct,-2)
+  sdstruct ~ dunif(0,100)
+}  
+
+inits <- function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
+        Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(Ndiseases, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+}
+param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+
+res13.2.3.4 <- pbugs(data = data, inits = inits, par = param, model = model13.2.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+# Computing time
+res13.2.3.4$exec_time
+# Convergence assessment of identifiable parameters
+aux <- c(grep("mu", dimnames(res13.2.3.4$summary)[[1]]), grep("ro", dimnames(res13.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res13.2.3.4$summary)[[1]]), grep("sSMR", dimnames(res13.2.3.4$summary)[[1]]))
+summary(res13.2.3.4$summary[aux, "Rhat"])
+summary(res13.2.3.4$summary[aux, "n.eff"])
+plot.deviance(res13.2.3.4)
+```
+
+##Spatial structure nested within sex
+```{r, eval=FALSE}
+model14.2.3.4 = function(){
+  for(k in 1:(nGroups[4])){#Sex
+    for(j in 1:(nGroups[3])){#Disease
+      for (p in 1:(nGroups[2])){#Period
+        for(i in 1:(nGroups[1])){#Municipality
+          Obs[i,p,j,k] ~ dpois(lambda[i,p,j,k])
+          log(lambda[i,p,j,k]) <- log(Exp[i,p,j,k])+log.theta[i,p,j,k]
+          log.theta[i,p,j,k] <- mu[p,j,k]+S1234[i,p,j,k]
+          #Adds dependence between sexes
+          S1234[i,p,j,k] <- inprod2(S123[i,p,j,],structure4[,k])
+          #Adds dependence between diseases
+          S123[i,p,j,k] <- inprod2(S12[i,p,,k],structure3[,j])
+          #Adds dependence between periods
+          S12[i,p,j,k] <- inprod2(tS1[k,j,,i],structure2[,p])
+
+          sSMR[i,p,j,k] <- 100*exp(log.theta[i,p,j,k])
+        }
+        mu[p,j,k] ~ dflat()
+        #Spatially dependent underlying random effects
+        tS1[k,j,p,1:(nGroups[1])] ~ car.proper(ceros[],C[],adj[],num[],M[],1,gamma[k])
+      }
+    }
+  }
+  
+  #Parameters for the PCAR distributions
+  for(l in 1:(nGroups[1])){ceros[l] <- 0}
+  gamma.inf <- min.bound(C[],adj[],num[],M[])
+  gamma.sup <- max.bound(C[],adj[],num[],M[])
+  for (k in 1:(nGroups[4])){
+    gamma[k] ~ dunif(gamma.inf,gamma.sup)
+  }
+  
+  #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
+  for (pc in 1:(nGroups[2])){
+    #First Row
+    structure2[1,pc] <- pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    #Rest of columns
+    for (pr in 2:(nGroups[2])){
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)
+    }
+  }
+  ro ~ dunif(-1,1)
+  
+  #Dimension 3 (Disease): 
+  for (i in 1:(nGroups[3])){
+    for (j in 1:(nGroups[3])){
+      structure3[i,j] ~ dnorm(0,prec) 
+    }
+  }
+  
+  #Dimension 4 (Sex): 
+  for (i in 1:(nGroups[4])){
+    for (j in 1:(nGroups[4])){
+      structure4[i,j] ~ dnorm(0,prec)
+    }
+  }
+  
+  #Prior distribution for the random effects variability 
+  prec <- pow(sdstruct,-2)
+  sdstruct ~ dunif(0,100)
+}  
+
+inits <- function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
+        Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(Nsex, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+}
+param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "tS1", "sSMR")
+
+res14.2.3.4 <- pbugs(data = data, inits = inits, par = param, model = model14.2.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+# Computing time
+res14.2.3.4$exec_time
+# Convergence assessment of identifiable parameters
+aux <- c(grep("mu", dimnames(res14.2.3.4$summary)[[1]]), grep("ro", dimnames(res14.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res14.2.3.4$summary)[[1]]), grep("sSMR", dimnames(res14.2.3.4$summary)[[1]]))
+summary(res14.2.3.4$summary[aux, "Rhat"])
+summary(res14.2.3.4$summary[aux, "n.eff"])
+plot.deviance(res14.2.3.4)
+```
+
+##Temporal structure nested within disease
+```{r, eval=FALSE}
+model1.23.3.4 = function(){
+  for(k in 1:(nGroups[4])){#Sex
+    for(j in 1:(nGroups[3])){#Disease
+      for (p in 1:(nGroups[2])){#Period
+        for(i in 1:(nGroups[1])){#Municipality
+          Obs[i,p,j,k] ~ dpois(lambda[i,p,j,k])
+          log(lambda[i,p,j,k]) <- log(Exp[i,p,j,k])+log.theta[i,p,j,k]
+          log.theta[i,p,j,k] <- mu[p,j,k]+S1234[i,p,j,k]
+          #Adds dependence between sexes
+          S1234[i,p,j,k] <- inprod2(S123[i,p,j,],structure4[,k])
+          #Adds dependence between diseases
+          S123[i,p,j,k] <- inprod2(S12[i,p,,k],structure3[,j])
+          #Adds dependence between periods
+          S12[i,p,j,k] <- inprod2(tS1[k,j,,i],structure2[,p,j])
+          
+          sSMR[i,p,j,k] <- 100*exp(log.theta[i,p,j,k])
+        }
+        mu[p,j,k] ~ dflat()
+        #Spatially dependent underlying random effects
+        tS1[k,j,p,1:(nGroups[1])] ~ car.proper(ceros[],C[],adj[],num[],M[],1,gamma)
+      }
+    }
+  }
+  
+  #Parameters for the PCAR distributions
+  for(l in 1:(nGroups[1])){ceros[l] <- 0}
+  gamma.inf <- min.bound(C[],adj[],num[],M[])
+  gamma.sup <- max.bound(C[],adj[],num[],M[])
+  gamma ~ dunif(gamma.inf,gamma.sup)
+  
+  #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
+  for (j in 1:(nGroups[3])){
+    for (pc in 1:(nGroups[2])){
+      #First Row
+      structure2[1,pc,j] <- pow(ro[j],pc-1)*pow((1-ro[j]*ro[j]),-0.5)
+      #Rest of columns
+      for (pr in 2:(nGroups[2])){
+        structure2[pr,pc,j] <- step(pc-pr)*pow(ro[j],pc-pr)
+      }
+    }
+    ro[j] ~ dunif(-1,1)
+  }
+
+  #Structure matrix for the third dimension (disease): 
+  for (i in 1:(nGroups[3])){
+    for (j in 1:(nGroups[3])){
+      structure3[i,j] ~ dnorm(0,prec) 
+    }
+  }
+  
+  #Structure matrix for the third dimension (sex): 
+  for (i in 1:(nGroups[4])){
+    for (j in 1:(nGroups[4])){
+      structure4[i,j] ~ dnorm(0,prec)
+    }
+  }
+  
+  #Prior distribution for the random effects variability 
+  prec <- pow(sdstruct,-2)
+  sdstruct ~ dunif(0,100)
+}  
+
+inits <- function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(Ndiseases, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
+        Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(1, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+}
+param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "tS1", "sSMR")
+res1.23.3.4 <- pbugs(data = data, inits = inits, par = param, model = model1.23.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+# Computing time
+res1.23.3.4$exec_time
+# Convergence assessment of identifiable parameters
+aux <- c(grep("mu", dimnames(res1.23.3.4$summary)[[1]]), grep("gamma", dimnames(res1.23.3.4$summary)[[1]]), grep("sdstruct", dimnames(res1.23.3.4$summary)[[1]]), grep("sSMR", dimnames(res1.23.3.4$summary)[[1]]))
+summary(res1.23.3.4$summary[aux, "Rhat"])
+summary(res1.23.3.4$summary[aux, "n.eff"])
+plot.deviance(res1.23.3.4)
+```
+
+##Temporal structure nested within sex
+```{r, eval=FALSE}
+model1.24.3.4 = function(){
+  for(k in 1:(nGroups[4])){#Sex
+    for(j in 1:(nGroups[3])){#Disease
+      for (p in 1:(nGroups[2])){#Period
+        for(i in 1:(nGroups[1])){#Municipality
+          Obs[i,p,j,k] ~ dpois(lambda[i,p,j,k])
+          log(lambda[i,p,j,k]) <- log(Exp[i,p,j,k])+log.theta[i,p,j,k]
+          log.theta[i,p,j,k] <- mu[p,j,k]+S1234[i,p,j,k]
+          #Adds dependence between sexes
+          S1234[i,p,j,k] <- inprod2(S123[i,p,j,],structure4[,k])
+          #Adds dependence between diseases
+          S123[i,p,j,k] <- inprod2(S12[i,p,,k],structure3[,j])
+          #Adds dependence between periods
+          S12[i,p,j,k] <- inprod2(tS1[k,j,,i],structure2[,p,k])
+          
+          sSMR[i,p,j,k] <- 100*exp(log.theta[i,p,j,k])
+        }
+        mu[p,j,k] ~ dflat()
+        #Spatially dependent underlying random effects
+        tS1[k,j,p,1:(nGroups[1])] ~ car.proper(ceros[],C[],adj[],num[],M[],1,gamma)
+      }
+    }
+  }
+  
+  #Parameters for the PCAR distributions
+  for(l in 1:(nGroups[1])){ceros[l] <- 0}
+  gamma.inf <- min.bound(C[],adj[],num[],M[])
+  gamma.sup <- max.bound(C[],adj[],num[],M[])
+  gamma ~ dunif(gamma.inf,gamma.sup)
+  
+  #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
+  for (k in 1:(nGroups[4])){
+    for (pc in 1:(nGroups[2])){
+      #First Row
+      structure2[1,pc,k] <- pow(ro[k],pc-1)*pow((1-ro[k]*ro[k]),-0.5)
+      #Rest of columns
+      for (pr in 2:(nGroups[2])){
+        structure2[pr,pc,k] <- step(pc-pr)*pow(ro[k],pc-pr)
+      }
+    }
+    ro[k] ~ dunif(-1,1)
+  }
+
+  #Structure matrix for the third dimension (disease): 
+  for (i in 1:(nGroups[3])){
+    for (j in 1:(nGroups[3])){
+      structure3[i,j] ~ dnorm(0,prec) 
+    }
+  }
+  
+  #Structure matrix for the third dimension (sex): 
+  for (i in 1:(nGroups[4])){
+    for (j in 1:(nGroups[4])){
+      structure4[i,j] ~ dnorm(0,prec)
+    }
+  }
+  
+  #Prior distribution for the random effects variability 
+  prec <- pow(sdstruct,-2)
+  sdstruct ~ dunif(0,100)
+}  
+
+inits <- function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(Nsex, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
+        Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(1, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+}
+param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+
+res1.24.3.4 <- pbugs(data = data, inits = inits, par = param, model = model1.24.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+# Computing time
+res1.24.3.4$exec_time
+# Convergence assessment of identifiable parameters
+aux <- c(grep("mu", dimnames(res1.24.3.4$summary)[[1]]), grep("gamma", dimnames(res1.24.3.4$summary)[[1]]), grep("sdstruct", dimnames(res1.24.3.4$summary)[[1]]), grep("sSMR", dimnames(res1.24.3.4$summary)[[1]]))
+summary(res1.24.3.4$summary[aux, "Rhat"])
+summary(res1.24.3.4$summary[aux, "n.eff"])
+plot.deviance(res1.24.3.4)
+```
+
+##Disease structure nested within Period
+```{r,eval=FALSE}
+model1.2.32.4 = function(){
+  for(k in 1:(nGroups[4])){#Sex
+    for(j in 1:(nGroups[3])){#Disease
+      for (p in 1:(nGroups[2])){#Period
+        for(i in 1:(nGroups[1])){#Municipality
+          Obs[i,p,j,k] ~ dpois(lambda[i,p,j,k])
+          log(lambda[i,p,j,k]) <- log(Exp[i,p,j,k])+log.theta[i,p,j,k]
+          log.theta[i,p,j,k] <- mu[p,j,k]+S1234[i,p,j,k]
+          #Adds dependence between sexes
+          S1234[i,p,j,k] <- inprod2(S123[i,p,j,],structure4[,k])
+          #Adds dependence between diseases
+          S123[i,p,j,k] <- inprod2(S12[i,p,,k],structure3[,j,p])
+          #Adds dependence between periods
+          S12[i,p,j,k] <- inprod2(tS1[k,j,,i],structure2[,p])
+          
+          sSMR[i,p,j,k] <- 100*exp(log.theta[i,p,j,k])
+        }
+        mu[p,j,k] ~ dflat()
+        #Spatially dependent underlying random effects
+        tS1[k,j,p,1:(nGroups[1])] ~ car.proper(ceros[],C[],adj[],num[],M[],1,gamma)
+      }
+    }
+  }
+
+  #Parameters for the PCAR distributions
+  for(l in 1:(nGroups[1])){ceros[l] <- 0}
+  gamma.inf <- min.bound(C[],adj[],num[],M[])
+  gamma.sup <- max.bound(C[],adj[],num[],M[])
+  gamma ~ dunif(gamma.inf,gamma.sup)
+  
+  #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
+  for (pc in 1:(nGroups[2])){
+    #First Row
+    structure2[1,pc] <- pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    #Rest of columns
+    for (pr in 2:(nGroups[2])){
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)
+    }
+  }
+  ro ~ dunif(-1,1)
+  
+  #Structure matrix for the third dimension (disease): 
+  for (p in 1:(nGroups[2])){
+    for (i in 1:(nGroups[3])){
+      for (j in 1:(nGroups[3])){
+        structure3[i,j,p] ~ dnorm(0,prec) 
+      }
+    }
+  }
+
+  #Structure matrix for the third dimension (sex): 
+  for (i in 1:(nGroups[4])){
+    for (j in 1:(nGroups[4])){
+      structure4[i,j] ~ dnorm(0,prec)
+    }
+  }
+  
+  #Prior distribution for the random effects variability 
+  prec <- pow(sdstruct,-2)
+  sdstruct ~ dunif(0,100)
+}  
+
+inits <- function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = array(rnorm(Ndiseases * Ndiseases * Nper, 0, 1), dim = c(Ndiseases, Ndiseases, 
+        Nper)), structure4 = matrix(rnorm(Nsex * Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(1, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, 
+        Ndiseases, Nper, Nmuni)))
+}
+param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+
+res1.2.32.4 <- pbugs(data = data, inits = inits, par = param, model = model1.2.32.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+# Computing time
+res1.2.32.4$exec_time
+# Convergence assessment of identifiable parameters
+aux <- c(grep("mu", dimnames(res1.2.32.4$summary)[[1]]), grep("gamma", dimnames(res1.2.32.4$summary)[[1]]), grep("ro", dimnames(res1.2.32.4$summary)[[1]]), grep("sdstruct", dimnames(res1.2.32.4$summary)[[1]]), 
+    grep("sSMR", dimnames(res1.2.32.4$summary)[[1]]))
+summary(res1.2.32.4$summary[aux, "Rhat"])
+summary(res1.2.32.4$summary[aux, "n.eff"])
+plot.deviance(res1.2.32.4)
+```
+
+##Disease structure nested within sex
+```{r,eval=FALSE}
+model1.2.34.4 = function(){
+  for(k in 1:(nGroups[4])){#Sex
+    for(j in 1:(nGroups[3])){#Disease
+      for (p in 1:(nGroups[2])){#Period
+        for(i in 1:(nGroups[1])){#Municipality
+          Obs[i,p,j,k] ~ dpois(lambda[i,p,j,k])
+          log(lambda[i,p,j,k]) <- log(Exp[i,p,j,k])+log.theta[i,p,j,k]
+          log.theta[i,p,j,k] <- mu[p,j,k]+S1234[i,p,j,k]
+          #Adds dependence between sexes
+          S1234[i,p,j,k] <- inprod2(S123[i,p,j,],structure4[,k])
+          #Adds dependence between diseases
+          S123[i,p,j,k] <- inprod2(S12[i,p,,k],structure3[,j,k])
+          #Adds dependence between periods
+          S12[i,p,j,k] <- inprod2(tS1[k,j,,i],structure2[,p])
+          
+          sSMR[i,p,j,k] <- 100*exp(log.theta[i,p,j,k])
+        }
+        mu[p,j,k] ~ dflat()
+
+        #Spatially dependent underlying random effects
+        tS1[k,j,p,1:(nGroups[1])] ~ car.proper(ceros[],C[],adj[],num[],M[],1,gamma)
+      }
+    }
+  }
+  
+  #Parameters for the PCAR distributions
+  for(l in 1:(nGroups[1])){ceros[l] <- 0}
+  gamma.inf <- min.bound(C[],adj[],num[],M[])
+  gamma.sup <- max.bound(C[],adj[],num[],M[])
+  gamma ~ dunif(gamma.inf,gamma.sup)
+  
+  #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
+  for (pc in 1:(nGroups[2])){
+    #First Row
+    structure2[1,pc] <- pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    #Rest of columns
+    for (pr in 2:(nGroups[2])){
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)
+    }
+  }
+  ro~dunif(-1,1)
+  
+  #Structure matrix for the fourth dimension (disease):
+  for (k in 1:(nGroups[4])){
+    for (i in 1:(nGroups[3])){
+      for (j in 1:(nGroups[3])){
+        structure3[i,j,k] ~ dnorm(0,prec) 
+      }
+    }
+  }
+  
+  #Structure matrix for the fourth dimension (sex):
+  for (i in 1:(nGroups[4])){
+    for (j in 1:(nGroups[4])){
+      structure4[i,j] ~ dnorm(0,prec)
+    }
+  }
+
+  #Prior distribution for the random effects variability 
+  prec <- pow(sdstruct,-2)
+  sdstruct ~ dunif(0,100)
+}  
+
+inits <- function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = array(rnorm(Ndiseases * Ndiseases * Nsex, 0, 1), dim = c(Ndiseases, Ndiseases, 
+        Nsex)), structure4 = matrix(rnorm(Nsex * Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(1, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, 
+        Ndiseases, Nper, Nmuni)))
+}
+param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+
+res1.2.34.4 <- pbugs(data = data, inits = inits, par = param, model = model1.2.34.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+# Computing time
+res1.2.34.4$exec_time
+# Convergence assessment of identifiable parameters
+aux <- c(grep("mu", dimnames(res1.2.34.4$summary)[[1]]), grep("gamma", dimnames(res1.2.34.4$summary)[[1]]), grep("ro", dimnames(res1.2.34.4$summary)[[1]]), grep("sdstruct", dimnames(res1.2.34.4$summary)[[1]]), 
+    grep("sSMR", dimnames(res1.2.34.4$summary)[[1]]))
+summary(res1.2.34.4$summary[aux, "Rhat"])
+summary(res1.2.34.4$summary[aux, "n.eff"])
+plot.deviance(res1.2.34.4)
+```
+
+##Sex structure nested within period
+```{r, eval=FALSE}
+model1.2.3.42 = function(){
+  for(k in 1:(nGroups[4])){#Sex
+    for(j in 1:(nGroups[3])){#Disease
+      for (p in 1:(nGroups[2])){#Period
+        for(i in 1:(nGroups[1])){#Municipality
+          Obs[i,p,j,k] ~ dpois(lambda[i,p,j,k])
+          log(lambda[i,p,j,k]) <- log(Exp[i,p,j,k])+log.theta[i,p,j,k]
+          log.theta[i,p,j,k] <- mu[p,j,k]+S1234[i,p,j,k]
+          #Adds dependence between sexes
+          S1234[i,p,j,k] <- inprod2(S123[i,p,j,],structure4[,k,p])
+          #Adds dependence between disease
+          S123[i,p,j,k] <- inprod2(S12[i,p,,k],structure3[,j])
+          #Adds dependence between period
+          S12[i,p,j,k] <- inprod2(tS1[k,j,,i],structure2[,p])
+          
+          sSMR[i,p,j,k] <- 100*exp(log.theta[i,p,j,k])
+        }
+        mu[p,j,k] ~ dflat()
+        #Spatially dependent underlying random effects
+        tS1[k,j,p,1:(nGroups[1])] ~ car.proper(ceros[],C[],adj[],num[],M[],1,gamma)
+      }
+    }
+  }
+  
+  #Parameters for the PCAR distributions
+  for(l in 1:(nGroups[1])){ceros[l] <- 0}
+  gamma.inf <- min.bound(C[],adj[],num[],M[])
+  gamma.sup <- max.bound(C[],adj[],num[],M[])
+  gamma ~ dunif(gamma.inf,gamma.sup)
+  
+  #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
+  for (pc in 1:(nGroups[2])){
+    #First Row
+    structure2[1,pc] <- pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    #Rest of columns
+    for (pr in 2:(nGroups[2])){
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)
+    }
+  }
+  ro~dunif(-1,1)
+  
+  #Structure matrix for the third dimension (disease): 
+  for (i in 1:(nGroups[3])){
+    for (j in 1:(nGroups[3])){
+      structure3[i,j] ~ dnorm(0,prec) 
+    }
+  }
+  
+  #Structure matrix for the third dimension (sex): 
+  for (k in 1:(nGroups[2])){ 
+    for (i in 1:(nGroups[4])){
+      for (j in 1:(nGroups[4])){
+        structure4[i,j,k] ~ dnorm(0,prec)
+      }
+    }
+  }
+
+  #Prior distribution for the random effects variability 
+  prec <- pow(sdstruct,-2)
+  sdstruct ~ dunif(0,100)
+}  
+
+inits <- function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = array(rnorm(Nsex * 
+        Nsex * Nper, 0, 1), dim = c(Nsex, Nsex, Nper)), sdstruct = runif(1, 0, 10), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+}
+param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+
+res1.2.3.42 <- pbugs(data = data, inits = inits, par = param, model = model1.2.3.42, n.iter = num.simu, n.burnin = num.burnin, n.chains = 3)
+# Computing time
+res1.2.3.42$exec_time
+# Convergence assessment of identifiable parameters
+aux <- c(grep("mu", dimnames(res1.2.3.42$summary)[[1]]), grep("gamma", dimnames(res1.2.3.42$summary)[[1]]), grep("ro", dimnames(res1.2.3.42$summary)[[1]]), grep("sdstruct", dimnames(res1.2.3.42$summary)[[1]]), 
+    grep("sSMR", dimnames(res1.2.3.42$summary)[[1]]))
+summary(res1.2.3.42$summary[aux, "Rhat"])
+summary(res1.2.3.42$summary[aux, "n.eff"])
+plot.deviance(res1.2.3.42)
+```
+
+##Sex structure nested within disease
+```{r, eval=FALSE}
+model1.2.3.43 = function(){
+  for(k in 1:(nGroups[4])){#Sex
+    for(j in 1:(nGroups[3])){#Disease
+      for (p in 1:(nGroups[2])){#Period
+        for(i in 1:(nGroups[1])){#Municipality
+          Obs[i,p,j,k] ~ dpois(lambda[i,p,j,k])
+          log(lambda[i,p,j,k]) <- log(Exp[i,p,j,k])+log.theta[i,p,j,k]
+          log.theta[i,p,j,k] <- mu[p,j,k]+S1234[i,p,j,k]
+          #Adds dependence between sexes
+          S1234[i,p,j,k] <- inprod2(S123[i,p,j,],structure4[,k,j])
+          #Adds dependence between diseases
+          S123[i,p,j,k] <- inprod2(S12[i,p,,k],structure3[,j])
+          #Adds dependence between periods
+          S12[i,p,j,k] <- inprod2(tS1[k,j,,i],structure2[,p])
+          
+          sSMR[i,p,j,k] <- 100*exp(log.theta[i,p,j,k])          
+        }
+        mu[p,j,k] ~ dflat()
+        #Spatially dependent underlying random effects
+        tS1[k,j,p,1:(nGroups[1])] ~ car.proper(ceros[],C[],adj[],num[],M[],1,gamma)
+      }
+    }
+  }
+
+  #Parameters for the PCAR distributions
+  for(l in 1:(nGroups[1])){ceros[l] <- 0}
+  gamma.inf <- min.bound(C[],adj[],num[],M[])
+  gamma.sup <- max.bound(C[],adj[],num[],M[])
+  gamma ~ dunif(gamma.inf,gamma.sup)
+  
+  #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
+  for (pc in 1:(nGroups[2])){
+    #First Row
+    structure2[1,pc] <- pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    #Rest of columns
+    for (pr in 2:(nGroups[2])){
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)
+    }
+  }
+  ro ~ dunif(-1,1)
+  
+  #Structure matrix for the third dimension (disease): 
+  for (i in 1:(nGroups[3])){
+    for (j in 1:(nGroups[3])){
+      structure3[i,j] ~ dnorm(0,prec) 
+    }
+  }
+  
+  #Structure matrix for the third dimension (sex): 
+  for (k in 1:(nGroups[3])){ 
+    for (i in 1:(nGroups[4])){
+      for (j in 1:(nGroups[4])){
+        structure4[i,j,k] ~ dnorm(0,prec)
+      }
+    }
+  }
+  
+  #Prior distribution for the random effects variability 
+  prec <- pow(sdstruct,-2)
+  sdstruct ~ dunif(0,100)
+}  
+
+inits <- function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = array(rnorm(Nsex * 
+        Nsex * Ndiseases, 0, 1), dim = c(Nsex, Nsex, Ndiseases)), sdstruct = runif(1, 0, 10), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+}
+param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+
+res1.2.3.43 <- pbugs(data = data, inits = inits, par = param, model = model1.2.3.43, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+# Computing time
+res1.2.3.43$exec_time
+# Convergence assessment of identifiable parameters
+aux <- c(grep("mu", dimnames(res1.2.3.43$summary)[[1]]), grep("gamma", dimnames(res1.2.3.43$summary)[[1]]), grep("ro", dimnames(res1.2.3.43$summary)[[1]]), grep("sdstruct", dimnames(res1.2.3.43$summary)[[1]]), 
+    grep("sSMR", dimnames(res1.2.3.43$summary)[[1]]))
+summary(res1.2.3.43$summary[aux, "Rhat"])
+summary(res1.2.3.43$summary[aux, "n.eff"])
+plot.deviance(res1.2.3.43)
+```
+
