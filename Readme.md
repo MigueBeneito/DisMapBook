@@ -3,8 +3,8 @@
 This webpage is intended to host the annex online material for the book: "Disease mapping: from foundations to multidimensional modeling", published by CRC/Chapman & Hall (2019) and authored by Miguel A. Martinez-Beneito and Paloma Botella-Rocamora. In our opinion, this is a valuable complement to the content of the book so hope you will take the most advantage of it.
 
 The material in this repository is arranged in several folders, containing: 
-* The material needed to reproduce the exercises of each chapter in the book. Folder [Exercises](tree/master/Exercises).
-* The material (data/cartographies) needed to reproduce the examples in the book. Folder [Data](tree/master/Data).
+* The material needed to reproduce the exercises of each chapter in the book. Folder [Exercises](https://github.com/MigueBeneito/DisMapBook/tree/master/Exercises).
+* The material (data/cartographies) needed to reproduce the examples in the book. Folder [Data](https://github.com/MigueBeneito/DisMapBook/tree/master/Data).
 * The `R` code needed to reproduce the examples in the book. Set of folders ExampleX_Y, where X stands for the chapter of that example and Y is a sequential number.
 
 We suggest you to clone the repository, or simply download a ZIP file with all its content, by pushing the "clone or download" button at the upper-right side of this page. Once done that you should be able to reproduce all the examples in the book and solve the proposed exercises. 
