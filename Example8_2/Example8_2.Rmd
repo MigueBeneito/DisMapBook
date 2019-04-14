@@ -297,20 +297,20 @@ matrix(apply(cors.iter,1,mean),ncol=3)
 ```{r}
 par(mfrow = c(2, 2))
 plot(ResQR$sims.array[, 1, "sSMR[1,1]"], type = "l", ylab = "sSMR[1,1]", xlab = "Iteration", main = expression("sSMR for the first disease and municipality"))
-lines(ResQR$sims.array[, 2, "sSMR[1,1]"], col = gray(0.66))
-lines(ResQR$sims.array[, 3, "sSMR[1,1]"], col = gray(0.33))
+lines(ResQR$sims.array[, 2, "sSMR[1,1]"], col = 2)
+lines(ResQR$sims.array[, 3, "sSMR[1,1]"], col = 3)
 
 plot(ResQR$sims.array[, 1, "gamma[1]"], type = "l", ylim = c(-1.5, 1), ylab = expression(rho[1]), xlab = "Iteration", main = expression(paste("Spatial dependence parameter for ", varphi, "."[1])))
-lines(ResQR$sims.array[, 2, "gamma[1]"], col = gray(0.66))
-lines(ResQR$sims.array[, 3, "gamma[1]"], col = gray(0.33))
+lines(ResQR$sims.array[, 2, "gamma[1]"], col = 2)
+lines(ResQR$sims.array[, 3, "gamma[1]"], col = 3)
 
 plot(ResQR$sims.array[, 1, "gamma[2]"], type = "l", ylim = c(-1.5, 1), ylab = expression(rho[2]), xlab = "Iteration", main = expression(paste("Spatial dependence parameter for ", varphi, "."[2])))
-lines(ResQR$sims.array[, 2, "gamma[2]"], col = gray(0.66))
-lines(ResQR$sims.array[, 3, "gamma[2]"], col = gray(0.33))
+lines(ResQR$sims.array[, 2, "gamma[2]"], col = 2)
+lines(ResQR$sims.array[, 3, "gamma[2]"], col = 3)
 
 plot(ResQR$sims.array[, 1, "gamma[3]"], type = "l", ylim = c(-1.5, 1), ylab = expression(rho[3]), xlab = "Iteration", main = expression(paste("Spatial dependence parameter for ", varphi, "."[3])))
-lines(ResQR$sims.array[, 2, "gamma[3]"], col = gray(0.66))
-lines(ResQR$sims.array[, 3, "gamma[3]"], col = gray(0.33))
+lines(ResQR$sims.array[, 2, "gamma[3]"], col = 2)
+lines(ResQR$sims.array[, 3, "gamma[3]"], col = 3)
 ```
 
 #RVA M-model

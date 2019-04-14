@@ -1,17 +1,16 @@
 ---
 title: "Example 9.1"
 subtitle: "Disease mapping: from foundations to multidimensional modeling"
-author: Martinez-Beneito M.A. and Botella-Rocamora P.
+author: Martinez-Beneito M. and Botella-Rocamora P.
 output: pdf_document
 editor_options: 
   chunk_output_type: console
 ---
-
+  
 This document reproduces the analysis made at Example 9.1 of the book: "Disease mapping: from foundations to multidimensional modeling" by Martinez-Beneito M.A. and Botella-Rocamora P., published by CRC press in 2019. You can watch the analysis made with full detail at this pdf document, or even execute it if you want with the material available at <https://github.com/MigueBeneito/DMBook>. Anyway, this pdf file should be enough for following most of the details of the analysis made for this example.
 
 The statistical analysis below has been run in `R`, by additionally using the library `Rmarkdown`, so be sure that you have this software installed if you want to reproduce by yourself the content of this document. In that case we advise you to download first the annex material at <https://github.com/MigueBeneito/DMBook>, open with `Rstudio` the corresponding `.Rproj` file that you will find at the folder corresponding to this example and compile the corresponding `.Rmd` document. This will allow you to reproduce the whole statistical analysis below.
 
-  
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, cache = TRUE, width = 80, tidy = TRUE, tidy.opts = list(width.cutoff = 75))
 set.seed(1)
@@ -21,8 +20,6 @@ This document has been executed with real data that are not provided in order to
 
 ##Libraries and data loading
 ```{r libraries and data loading, warning=FALSE, message=FALSE}
-#Libraries loading
-#-----------------
 if(!require(RColorBrewer)){install.packages("RColorBrewer");library(RColorBrewer)}
 if(!require(rgdal)){install.packages("rgdal");library(rgdal)}
 if(!require(pbugs)){
@@ -34,8 +31,6 @@ if(!require(pbugs)){
     }
 }
 
-#Data loading
-#------------
 #For reproducing the document, the following line should be changed to load("../Data/ObsMDM-mod.Rdata") since that file contains the modified data making it possible to reproduce this document.
 load("../Data/ObsMDM.Rdata")
 #load("../Data/ObsOral-mod.Rdata")
@@ -63,12 +58,12 @@ DICPoisson = function(Simu.sSMRs,O,E){
 
 #Function monitoring the convergence of the deviance of multidimensional models
 ```{r}
-plot.deviance <- function(resul) {
-    deviances <- matrix(nrow = dim(resul$sims.array)[1], ncol = dim(resul$sims.array)[2])
+plot.deviance = function(resul) {
+    deviances = matrix(nrow = dim(resul$sims.array)[1], ncol = dim(resul$sims.array)[2])
     for (j in 1:(dim(resul$sims.array)[2])) {
         for (i in 1:(dim(resul$sims.array)[1])) {
-            sSMR <- aperm(array(resul$sims.array[i, j, grep("sSMR", dimnames(resul$summary)[[1]])], dim = dim(Obs.md)[4:1]), 4:1)
-            deviances[i, j] <- -2 * sum(dpois(as.vector(Obs.md), as.vector((sSMR/100) * Exp.md), log = T))
+            sSMR = aperm(array(resul$sims.array[i, j, grep("sSMR", dimnames(resul$summary)[[1]])], dim = dim(Obs.md)[4:1]), 4:1)
+            deviances[i, j] = -2 * sum(dpois(as.vector(Obs.md), as.vector((sSMR/100) * Exp.md), log = T))
         }
     }
     plot(deviances[, 1], type = "l", ylim = c(min(deviances), max(deviances)), ylab = "Deviance", xlab = "Iteration saved")
@@ -80,20 +75,20 @@ plot.deviance <- function(resul) {
 
 ##Definition of some constants that will be extensively used for the rest of the analysis
 ```{r}
-num.simu <- 15000
-num.burnin <- 5000
+num.simu = 30000
+num.burnin = 10000
 
-Nmuni <- 540
-Nper <- 5
-Ndiseases <- 2
-Nsex <- 2
-nGroups <- c(Nmuni, Nper, Ndiseases, Nsex)  #Municipalities, Periods, Diseases, Sexes
+Nmuni = 540
+Nper = 5
+Ndiseases = 2
+Nsex = 2
+nGroups = c(Nmuni, Nper, Ndiseases, Nsex)  #Municipalities, Periods, Diseases, Sexes
 
-num <- VR.wb$num
-adj <- VR.wb$adj
+num = VR.wb$num
+adj = VR.wb$adj
 
 # We define the data for the multidimensional models here since they will be common to all the models run
-data <- list(Obs = Obs.md, Exp = Exp.md, nGroups = nGroups, adj = adj, num = num, C = rep(1/num, num), M = 1/num)
+data = list(Obs = Obs.md, Exp = Exp.md, nGroups = nGroups, adj = adj, num = num, C = rep(1/num, num), M = 1/num)
 ```
 
 ##Fully separable model
@@ -107,37 +102,37 @@ model1.2.3.4 = function(){
           log(lambda[i,p,j,k]) <- log(Exp[i,p,j,k])+log.theta[i,p,j,k]
           log.theta[i,p,j,k] <- mu[p,j,k]+S1234[i,p,j,k]  
           #Adds dependence between sexes
-          S1234[i,p,j,k] = inprod2(S123[i,p,j,],structure4[,k])
+          S1234[i,p,j,k] <- inprod2(S123[i,p,j,],structure4[,k])
           #Adds dependence between diseases
-          S123[i,p,j,k] = inprod2(S12[i,p,,k],structure3[,j])
+          S123[i,p,j,k] <- inprod2(S12[i,p,,k],structure3[,j])
           #Adds dependence between periods
-          S12[i,p,j,k] = inprod2(tS1[k,j,,i],structure2[,p])
+          S12[i,p,j,k] <- inprod2(tS1[k,j,,i],structure2[,p])
 
-          sSMR[i,p,j,k] = 100*exp(log.theta[i,p,j,k])
+          sSMR[i,p,j,k] <- 100*exp(log.theta[i,p,j,k])
         }
-        mu[p,j,k] = dflat()
+        mu[p,j,k] ~ dflat()
         #Spatially dependent underlying random effects
-        tS1[k,j,p,1:(nGroups[1])] = car.proper(ceros[],C[],adj[],num[],M[],1,gamma)
+        tS1[k,j,p,1:(nGroups[1])] ~ car.proper(ceros[],C[],adj[],num[],M[],1,gamma)
       }
     }
   }
   
   #Parameters for the PCAR distributions
-  for(l in 1:(nGroups[1])){ceros[l] = 0}
-  gamma.inf = min.bound(C[],adj[],num[],M[])
-  gamma.sup = max.bound(C[],adj[],num[],M[])
-  gamma = dunif(gamma.inf,gamma.sup)
+  for(l in 1:(nGroups[1])){ceros[l] <- 0}
+  gamma.inf <- min.bound(C[],adj[],num[],M[])
+  gamma.sup <- max.bound(C[],adj[],num[],M[])
+  gamma ~ dunif(gamma.inf,gamma.sup)
   
   #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
   for (pc in 1:(nGroups[2])){
     #First Row
-    structure2[1,pc] = pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    structure2[1,pc] <- pow(ro,pc-1)
     #Rest of columns
     for (pr in 2:(nGroups[2])){
-      structure2[pr,pc] = step(pc-pr)*pow(ro,pc-pr)
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)*pow((1-ro*ro),0.5)
     }
   }
-  ro = dunif(-1,1)
+  ro ~ dunif(-1,1)
   
   #Structure matrix for the third dimension (disease): 
   for (i in 1:(nGroups[3])){
@@ -158,17 +153,17 @@ model1.2.3.4 = function(){
   sdstruct ~ dunif(0,100)
 }
 
-inits <- function() {
-    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
-        Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(1, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+inits = function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 0.2), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
+        Nsex, 0, 0.2), nrow = Nsex), sdstruct = runif(1, 0, 1), gamma = runif(1, 0.5, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 0.2), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
 }
-param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+param = c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
 
-res1.2.3.4 <- pbugs(data = data, inits = inits, par = param, model = model1.2.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+res1.2.3.4 = pbugs(data = data, inits = inits, par = param, model = model1.2.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
 # Computing time
 res1.2.3.4$exec_time
 # Convergence assessment of identifiable parameters
-aux <- c(grep("mu", dimnames(res1.2.3.4$summary)[[1]]), grep("gamma", dimnames(res1.2.3.4$summary)[[1]]), grep("ro", dimnames(res1.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res1.2.3.4$summary)[[1]]), 
+aux = c(grep("mu", dimnames(res1.2.3.4$summary)[[1]]), grep("gamma", dimnames(res1.2.3.4$summary)[[1]]), grep("ro", dimnames(res1.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res1.2.3.4$summary)[[1]]), 
     grep("sSMR", dimnames(res1.2.3.4$summary)[[1]]))
 summary(res1.2.3.4$summary[aux, "Rhat"])
 summary(res1.2.3.4$summary[aux, "n.eff"])
@@ -239,48 +234,25 @@ model12.2.3.4 = function(){
   sdstruct ~ dunif(0,100)
 }  
 
-inits <- function() {
-    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
-        Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(Nper, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+set.seed(1)
+inits = function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 0.2), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
+        Nsex, 0, 0.2), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(Nper, 0.5, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 0.2), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
 }
-param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+param = c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
 
-res12.2.3.4 <- pbugs(data = data, inits = inits, par = param, model = model12.2.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+res12.2.3.4 = pbugs(data = data, inits = inits, par = param, model = model12.2.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
 # Computing time
 res12.2.3.4$exec_time
 # Convergence assessment of identifiable parameters
-aux <- c(grep("mu", dimnames(res12.2.3.4$summary)[[1]]), grep("ro", dimnames(res12.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res12.2.3.4$summary)[[1]]), grep("sSMR", dimnames(res12.2.3.4$summary)[[1]]))
+aux = c(grep("mu", dimnames(res12.2.3.4$summary)[[1]]), grep("ro", dimnames(res12.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res12.2.3.4$summary)[[1]]), grep("sSMR", dimnames(res12.2.3.4$summary)[[1]]))
 summary(res12.2.3.4$summary[aux, "Rhat"])
 summary(res12.2.3.4$summary[aux, "n.eff"])
 plot.deviance(res12.2.3.4)
 ```
 
-```{r}
-par(mfrow = c(2, 3))
-plot(res12.2.3.4$sims.array[, 1, "gamma[1]"], type = "l")
-lines(res12.2.3.4$sims.array[, 2, "gamma[1]"], col = 2)
-lines(res12.2.3.4$sims.array[, 3, "gamma[1]"], col = 3)
-plot(res12.2.3.4$sims.array[, 1, "gamma[2]"], type = "l")
-lines(res12.2.3.4$sims.array[, 2, "gamma[2]"], col = 2)
-lines(res12.2.3.4$sims.array[, 3, "gamma[2]"], col = 3)
-plot(res12.2.3.4$sims.array[, 1, "gamma[3]"], type = "l")
-lines(res12.2.3.4$sims.array[, 2, "gamma[3]"], col = 2)
-lines(res12.2.3.4$sims.array[, 3, "gamma[3]"], col = 3)
-plot(res12.2.3.4$sims.array[, 1, "gamma[4]"], type = "l")
-lines(res12.2.3.4$sims.array[, 2, "gamma[4]"], col = 2)
-lines(res12.2.3.4$sims.array[, 3, "gamma[4]"], col = 3)
-plot(res12.2.3.4$sims.array[, 1, "gamma[5]"], type = "l")
-lines(res12.2.3.4$sims.array[, 2, "gamma[5]"], col = 2)
-lines(res12.2.3.4$sims.array[, 3, "gamma[5]"], col = 3)
-plot(res12.2.3.4$sims.array[, 1, "ro"], type = "l", ylim = c(-1, 1))
-lines(res12.2.3.4$sims.array[, 2, "ro"], col = 2)
-lines(res12.2.3.4$sims.array[, 3, "ro"], col = 3)
-
-
-```
-
 ##Spatial structure nested within disease
-```{r, eval=FALSE}
+```{r}
 model13.2.3.4 = function(){
   for(k in 1:(nGroups[4])){#Sex
     for(j in 1:(nGroups[3])){#Disease
@@ -317,10 +289,10 @@ model13.2.3.4 = function(){
   #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
   for (pc in 1:(nGroups[2])){
     #First Row
-    structure2[1,pc] <- pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    structure2[1,pc] <- pow(ro,pc-1)
     #Rest of columns
     for (pr in 2:(nGroups[2])){
-      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)*pow((1-ro*ro),0.5)
     }
   }
   ro ~ dunif(-1,1)
@@ -344,24 +316,24 @@ model13.2.3.4 = function(){
   sdstruct ~ dunif(0,100)
 }  
 
-inits <- function() {
-    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
-        Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(Ndiseases, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+inits = function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 0.2), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
+        Nsex, 0, 0.2), nrow = Nsex), sdstruct = runif(1, 0, 1), gamma = runif(Ndiseases, 0.5, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 0.2), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
 }
-param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+param = c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
 
-res13.2.3.4 <- pbugs(data = data, inits = inits, par = param, model = model13.2.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+res13.2.3.4 = pbugs(data = data, inits = inits, par = param, model = model13.2.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
 # Computing time
 res13.2.3.4$exec_time
 # Convergence assessment of identifiable parameters
-aux <- c(grep("mu", dimnames(res13.2.3.4$summary)[[1]]), grep("ro", dimnames(res13.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res13.2.3.4$summary)[[1]]), grep("sSMR", dimnames(res13.2.3.4$summary)[[1]]))
+aux = c(grep("mu", dimnames(res13.2.3.4$summary)[[1]]), grep("ro", dimnames(res13.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res13.2.3.4$summary)[[1]]), grep("sSMR", dimnames(res13.2.3.4$summary)[[1]]))
 summary(res13.2.3.4$summary[aux, "Rhat"])
 summary(res13.2.3.4$summary[aux, "n.eff"])
 plot.deviance(res13.2.3.4)
 ```
 
 ##Spatial structure nested within sex
-```{r, eval=FALSE}
+```{r}
 model14.2.3.4 = function(){
   for(k in 1:(nGroups[4])){#Sex
     for(j in 1:(nGroups[3])){#Disease
@@ -397,10 +369,10 @@ model14.2.3.4 = function(){
   #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
   for (pc in 1:(nGroups[2])){
     #First Row
-    structure2[1,pc] <- pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    structure2[1,pc] <- pow(ro,pc-1)
     #Rest of columns
     for (pr in 2:(nGroups[2])){
-      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)*pow((1-ro*ro),0.5)
     }
   }
   ro ~ dunif(-1,1)
@@ -424,24 +396,24 @@ model14.2.3.4 = function(){
   sdstruct ~ dunif(0,100)
 }  
 
-inits <- function() {
-    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
-        Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(Nsex, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+inits = function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 0.2), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
+        Nsex, 0, 0.2), nrow = Nsex), sdstruct = runif(1, 0, 1), gamma = runif(Nsex, 0.5, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 0.2), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
 }
-param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "tS1", "sSMR")
+param = c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
 
-res14.2.3.4 <- pbugs(data = data, inits = inits, par = param, model = model14.2.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+res14.2.3.4 = pbugs(data = data, inits = inits, par = param, model = model14.2.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
 # Computing time
 res14.2.3.4$exec_time
 # Convergence assessment of identifiable parameters
-aux <- c(grep("mu", dimnames(res14.2.3.4$summary)[[1]]), grep("ro", dimnames(res14.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res14.2.3.4$summary)[[1]]), grep("sSMR", dimnames(res14.2.3.4$summary)[[1]]))
+aux = c(grep("mu", dimnames(res14.2.3.4$summary)[[1]]), grep("ro", dimnames(res14.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res14.2.3.4$summary)[[1]]), grep("sSMR", dimnames(res14.2.3.4$summary)[[1]]))
 summary(res14.2.3.4$summary[aux, "Rhat"])
 summary(res14.2.3.4$summary[aux, "n.eff"])
 plot.deviance(res14.2.3.4)
 ```
 
 ##Temporal structure nested within disease
-```{r, eval=FALSE}
+```{r}
 model1.23.3.4 = function(){
   for(k in 1:(nGroups[4])){#Sex
     for(j in 1:(nGroups[3])){#Disease
@@ -476,10 +448,10 @@ model1.23.3.4 = function(){
   for (j in 1:(nGroups[3])){
     for (pc in 1:(nGroups[2])){
       #First Row
-      structure2[1,pc,j] <- pow(ro[j],pc-1)*pow((1-ro[j]*ro[j]),-0.5)
+      structure2[1,pc,j] <- pow(ro[j],pc-1)
       #Rest of columns
       for (pr in 2:(nGroups[2])){
-        structure2[pr,pc,j] <- step(pc-pr)*pow(ro[j],pc-pr)
+        structure2[pr,pc,j] <- step(pc-pr)*pow(ro[j],pc-pr)*pow((1-ro[j]*ro[j]),0.5)
       }
     }
     ro[j] ~ dunif(-1,1)
@@ -504,23 +476,23 @@ model1.23.3.4 = function(){
   sdstruct ~ dunif(0,100)
 }  
 
-inits <- function() {
-    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(Ndiseases, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
-        Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(1, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+inits = function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(Ndiseases, 0, 0.2), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 0.2), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
+        Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 1), gamma = runif(1, 0.5, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 0.2), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
 }
-param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "tS1", "sSMR")
-res1.23.3.4 <- pbugs(data = data, inits = inits, par = param, model = model1.23.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+param = c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+res1.23.3.4 = pbugs(data = data, inits = inits, par = param, model = model1.23.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
 # Computing time
 res1.23.3.4$exec_time
 # Convergence assessment of identifiable parameters
-aux <- c(grep("mu", dimnames(res1.23.3.4$summary)[[1]]), grep("gamma", dimnames(res1.23.3.4$summary)[[1]]), grep("sdstruct", dimnames(res1.23.3.4$summary)[[1]]), grep("sSMR", dimnames(res1.23.3.4$summary)[[1]]))
+aux = c(grep("mu", dimnames(res1.23.3.4$summary)[[1]]), grep("gamma", dimnames(res1.23.3.4$summary)[[1]]), grep("sdstruct", dimnames(res1.23.3.4$summary)[[1]]), grep("sSMR", dimnames(res1.23.3.4$summary)[[1]]))
 summary(res1.23.3.4$summary[aux, "Rhat"])
 summary(res1.23.3.4$summary[aux, "n.eff"])
 plot.deviance(res1.23.3.4)
 ```
 
 ##Temporal structure nested within sex
-```{r, eval=FALSE}
+```{r}
 model1.24.3.4 = function(){
   for(k in 1:(nGroups[4])){#Sex
     for(j in 1:(nGroups[3])){#Disease
@@ -555,10 +527,10 @@ model1.24.3.4 = function(){
   for (k in 1:(nGroups[4])){
     for (pc in 1:(nGroups[2])){
       #First Row
-      structure2[1,pc,k] <- pow(ro[k],pc-1)*pow((1-ro[k]*ro[k]),-0.5)
+      structure2[1,pc,k] <- pow(ro[k],pc-1)
       #Rest of columns
       for (pr in 2:(nGroups[2])){
-        structure2[pr,pc,k] <- step(pc-pr)*pow(ro[k],pc-pr)
+        structure2[pr,pc,k] <- step(pc-pr)*pow(ro[k],pc-pr)*pow((1-ro[k]*ro[k]),0.5)
       }
     }
     ro[k] ~ dunif(-1,1)
@@ -583,13 +555,13 @@ model1.24.3.4 = function(){
   sdstruct ~ dunif(0,100)
 }  
 
-inits <- function() {
-    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(Nsex, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
-        Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(1, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+inits = function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(Nsex, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 0.2), nrow = Ndiseases), structure4 = matrix(rnorm(Nsex * 
+        Nsex, 0, 0.2), nrow = Nsex), sdstruct = runif(1, 0, 1), gamma = runif(1, 0.5, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 0.2), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
 }
 param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
 
-res1.24.3.4 <- pbugs(data = data, inits = inits, par = param, model = model1.24.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+res1.24.3.4 = pbugs(data = data, inits = inits, par = param, model = model1.24.3.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
 # Computing time
 res1.24.3.4$exec_time
 # Convergence assessment of identifiable parameters
@@ -600,7 +572,7 @@ plot.deviance(res1.24.3.4)
 ```
 
 ##Disease structure nested within Period
-```{r,eval=FALSE}
+```{r}
 model1.2.32.4 = function(){
   for(k in 1:(nGroups[4])){#Sex
     for(j in 1:(nGroups[3])){#Disease
@@ -634,10 +606,10 @@ model1.2.32.4 = function(){
   #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
   for (pc in 1:(nGroups[2])){
     #First Row
-    structure2[1,pc] <- pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    structure2[1,pc] <- pow(ro,pc-1)
     #Rest of columns
     for (pr in 2:(nGroups[2])){
-      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)*pow((1-ro*ro),0.5)
     }
   }
   ro ~ dunif(-1,1)
@@ -663,18 +635,18 @@ model1.2.32.4 = function(){
   sdstruct ~ dunif(0,100)
 }  
 
-inits <- function() {
-    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = array(rnorm(Ndiseases * Ndiseases * Nper, 0, 1), dim = c(Ndiseases, Ndiseases, 
-        Nper)), structure4 = matrix(rnorm(Nsex * Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(1, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, 
+inits = function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = array(rnorm(Ndiseases * Ndiseases * Nper, 0, 0.2), dim = c(Ndiseases, Ndiseases, 
+        Nper)), structure4 = matrix(rnorm(Nsex * Nsex, 0, 0.2), nrow = Nsex), sdstruct = runif(1, 0, 1), gamma = runif(1, 0.5, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 0.2), dim = c(Nsex, 
         Ndiseases, Nper, Nmuni)))
 }
-param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+param = c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
 
-res1.2.32.4 <- pbugs(data = data, inits = inits, par = param, model = model1.2.32.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+res1.2.32.4 = pbugs(data = data, inits = inits, par = param, model = model1.2.32.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
 # Computing time
 res1.2.32.4$exec_time
 # Convergence assessment of identifiable parameters
-aux <- c(grep("mu", dimnames(res1.2.32.4$summary)[[1]]), grep("gamma", dimnames(res1.2.32.4$summary)[[1]]), grep("ro", dimnames(res1.2.32.4$summary)[[1]]), grep("sdstruct", dimnames(res1.2.32.4$summary)[[1]]), 
+aux = c(grep("mu", dimnames(res1.2.32.4$summary)[[1]]), grep("gamma", dimnames(res1.2.32.4$summary)[[1]]), grep("ro", dimnames(res1.2.32.4$summary)[[1]]), grep("sdstruct", dimnames(res1.2.32.4$summary)[[1]]), 
     grep("sSMR", dimnames(res1.2.32.4$summary)[[1]]))
 summary(res1.2.32.4$summary[aux, "Rhat"])
 summary(res1.2.32.4$summary[aux, "n.eff"])
@@ -682,7 +654,7 @@ plot.deviance(res1.2.32.4)
 ```
 
 ##Disease structure nested within sex
-```{r,eval=FALSE}
+```{r}
 model1.2.34.4 = function(){
   for(k in 1:(nGroups[4])){#Sex
     for(j in 1:(nGroups[3])){#Disease
@@ -717,10 +689,10 @@ model1.2.34.4 = function(){
   #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
   for (pc in 1:(nGroups[2])){
     #First Row
-    structure2[1,pc] <- pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    structure2[1,pc] <- pow(ro,pc-1)
     #Rest of columns
     for (pr in 2:(nGroups[2])){
-      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)*pow((1-ro*ro),0.5)
     }
   }
   ro~dunif(-1,1)
@@ -747,13 +719,13 @@ model1.2.34.4 = function(){
 }  
 
 inits <- function() {
-    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = array(rnorm(Ndiseases * Ndiseases * Nsex, 0, 1), dim = c(Ndiseases, Ndiseases, 
-        Nsex)), structure4 = matrix(rnorm(Nsex * Nsex, 0, 1), nrow = Nsex), sdstruct = runif(1, 0, 10), gamma = runif(1, 0.6, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, 
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = array(rnorm(Ndiseases * Ndiseases * Nsex, 0, 0.2), dim = c(Ndiseases, Ndiseases, 
+        Nsex)), structure4 = matrix(rnorm(Nsex * Nsex, 0, 0.2), nrow = Nsex), sdstruct = runif(1, 0, 1), gamma = runif(1, 0.5, 0.95), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 0.2), dim = c(Nsex, 
         Ndiseases, Nper, Nmuni)))
 }
-param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+param = c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
 
-res1.2.34.4 <- pbugs(data = data, inits = inits, par = param, model = model1.2.34.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+res1.2.34.4 = pbugs(data = data, inits = inits, par = param, model = model1.2.34.4, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
 # Computing time
 res1.2.34.4$exec_time
 # Convergence assessment of identifiable parameters
@@ -765,7 +737,7 @@ plot.deviance(res1.2.34.4)
 ```
 
 ##Sex structure nested within period
-```{r, eval=FALSE}
+```{r}
 model1.2.3.42 = function(){
   for(k in 1:(nGroups[4])){#Sex
     for(j in 1:(nGroups[3])){#Disease
@@ -799,10 +771,10 @@ model1.2.3.42 = function(){
   #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
   for (pc in 1:(nGroups[2])){
     #First Row
-    structure2[1,pc] <- pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    structure2[1,pc] <- pow(ro,pc-1)
     #Rest of columns
     for (pr in 2:(nGroups[2])){
-      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)*pow((1-ro*ro),0.5)
     }
   }
   ro~dunif(-1,1)
@@ -828,17 +800,26 @@ model1.2.3.42 = function(){
   sdstruct ~ dunif(0,100)
 }  
 
-inits <- function() {
-    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = array(rnorm(Nsex * 
-        Nsex * Nper, 0, 1), dim = c(Nsex, Nsex, Nper)), sdstruct = runif(1, 0, 10), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+inits = function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 0.2), nrow = Ndiseases), structure4 = array(rnorm(Nsex * 
+        Nsex * Nper, 0, 0.2), dim = c(Nsex, Nsex, Nper)), sdstruct = runif(1, 0, 1), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 0.2), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
 }
-param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+inits = function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), 
+         ro = runif(1, 0.7, 1), 
+         structure3 = matrix(rnorm(Ndiseases * Ndiseases, apply(res1.2.3.42$sims.array[,3,grep("structure3",dimnames(res1.2.3.42$sims.array)[[3]])],2,mean), 0.2), nrow = Ndiseases), 
+         structure4 = array(rnorm(Nsex * Nsex * Nper, apply(res1.2.3.42$sims.array[,3,grep("structure4",dimnames(res1.2.3.42$sims.array)[[3]])],2,mean), 0.1), dim = c(Nsex, Nsex, Nper)), 
+        sdstruct = rnorm(1, mean(res1.2.3.42$sims.array[,3,"sdstruct"]),0.1), 
+        tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+}
 
-res1.2.3.42 <- pbugs(data = data, inits = inits, par = param, model = model1.2.3.42, n.iter = num.simu, n.burnin = num.burnin, n.chains = 3)
+param = c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+
+res1.2.3.42 = pbugs(data = data, inits = inits, par = param, model = model1.2.3.42, n.iter = num.simu, n.burnin = num.burnin, n.chains = 3)
 # Computing time
 res1.2.3.42$exec_time
 # Convergence assessment of identifiable parameters
-aux <- c(grep("mu", dimnames(res1.2.3.42$summary)[[1]]), grep("gamma", dimnames(res1.2.3.42$summary)[[1]]), grep("ro", dimnames(res1.2.3.42$summary)[[1]]), grep("sdstruct", dimnames(res1.2.3.42$summary)[[1]]), 
+aux = c(grep("mu", dimnames(res1.2.3.42$summary)[[1]]), grep("gamma", dimnames(res1.2.3.42$summary)[[1]]), grep("ro", dimnames(res1.2.3.42$summary)[[1]]), grep("sdstruct", dimnames(res1.2.3.42$summary)[[1]]), 
     grep("sSMR", dimnames(res1.2.3.42$summary)[[1]]))
 summary(res1.2.3.42$summary[aux, "Rhat"])
 summary(res1.2.3.42$summary[aux, "n.eff"])
@@ -846,7 +827,7 @@ plot.deviance(res1.2.3.42)
 ```
 
 ##Sex structure nested within disease
-```{r, eval=FALSE}
+```{r}
 model1.2.3.43 = function(){
   for(k in 1:(nGroups[4])){#Sex
     for(j in 1:(nGroups[3])){#Disease
@@ -880,10 +861,10 @@ model1.2.3.43 = function(){
   #Structure matrix for the second dimension (period). Structure 2 is defined as the upper Cholesky matrix of the covariance matrix of an AR1 process.
   for (pc in 1:(nGroups[2])){
     #First Row
-    structure2[1,pc] <- pow(ro,pc-1)*pow((1-ro*ro),-0.5)
+    structure2[1,pc] <- pow(ro,pc-1)
     #Rest of columns
     for (pr in 2:(nGroups[2])){
-      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)
+      structure2[pr,pc] <- step(pc-pr)*pow(ro,pc-pr)*pow((1-ro*ro),0.5)
     }
   }
   ro ~ dunif(-1,1)
@@ -909,20 +890,367 @@ model1.2.3.43 = function(){
   sdstruct ~ dunif(0,100)
 }  
 
-inits <- function() {
-    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 1), nrow = Ndiseases), structure4 = array(rnorm(Nsex * 
-        Nsex * Ndiseases, 0, 1), dim = c(Nsex, Nsex, Ndiseases)), sdstruct = runif(1, 0, 10), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 1), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
+inits = function() {
+    list(mu = array(runif(Nper * Ndiseases * Nsex, -0.5, 0), dim = c(Nper, Ndiseases, Nsex)), ro = runif(1, 0, 1), structure3 = matrix(rnorm(Ndiseases * Ndiseases, 0, 0.2), nrow = Ndiseases), structure4 = array(rnorm(Nsex * 
+        Nsex * Ndiseases, 0, 0.2), dim = c(Nsex, Nsex, Ndiseases)), sdstruct = runif(1, 0, 1), tS1 = array(rnorm(Nmuni * Nper * Ndiseases * Nsex, 0, 0.2), dim = c(Nsex, Ndiseases, Nper, Nmuni)))
 }
-param <- c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
+param = c("mu", "gamma", "ro", "structure3", "structure4", "sdstruct", "sSMR")
 
-res1.2.3.43 <- pbugs(data = data, inits = inits, par = param, model = model1.2.3.43, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
+res1.2.3.43 = pbugs(data = data, inits = inits, par = param, model = model1.2.3.43, n.iter = num.simu, n.burnin = num.burnin, bugs.seed = 1)
 # Computing time
 res1.2.3.43$exec_time
 # Convergence assessment of identifiable parameters
-aux <- c(grep("mu", dimnames(res1.2.3.43$summary)[[1]]), grep("gamma", dimnames(res1.2.3.43$summary)[[1]]), grep("ro", dimnames(res1.2.3.43$summary)[[1]]), grep("sdstruct", dimnames(res1.2.3.43$summary)[[1]]), 
+aux = c(grep("mu", dimnames(res1.2.3.43$summary)[[1]]), grep("gamma", dimnames(res1.2.3.43$summary)[[1]]), grep("ro", dimnames(res1.2.3.43$summary)[[1]]), grep("sdstruct", dimnames(res1.2.3.43$summary)[[1]]), 
     grep("sSMR", dimnames(res1.2.3.43$summary)[[1]]))
 summary(res1.2.3.43$summary[aux, "Rhat"])
 summary(res1.2.3.43$summary[aux, "n.eff"])
 plot.deviance(res1.2.3.43)
+```
+
+```{r}
+# Model 1.2.3.4
+#--------------
+res1.2.3.4$exec_time
+# set of identifiable parameters
+aux = c(grep("mu", dimnames(res1.2.3.4$summary)[[1]]), grep("gamma", dimnames(res1.2.3.4$summary)[[1]]), grep("ro", dimnames(res1.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res1.2.3.4$summary)[[1]]), 
+    grep("sSMR", dimnames(res1.2.3.4$summary)[[1]]))
+# Convergence assessment for the set of identifiable parameters in the model
+res1.2.3.4$summary[aux,"Rhat"][which(res1.2.3.4$summary[aux,"Rhat"]>1.1)]
+res1.2.3.4$summary[aux,"n.eff"][which(res1.2.3.4$summary[aux,"n.eff"]<100)]
+plot.deviance(res1.2.3.4)
+
+# Model 12.2.3.4
+#---------------
+res12.2.3.4$exec_time
+# Set of identifiable parameters
+aux = c(grep("mu", dimnames(res12.2.3.4$summary)[[1]]), grep("ro", dimnames(res12.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res12.2.3.4$summary)[[1]]), grep("sSMR", dimnames(res12.2.3.4$summary)[[1]]))
+# Convergence assessment for the set of identifiable parameters in the model
+res12.2.3.4$summary[aux,"Rhat"][which(res12.2.3.4$summary[aux,"Rhat"]>1.1)]
+res12.2.3.4$summary[aux,"n.eff"][which(res12.2.3.4$summary[aux,"n.eff"]<100)]
+plot.deviance(res12.2.3.4)
+
+# Model 13.2.3.4
+#---------------
+res13.2.3.4$exec_time
+# Set of identifiable parameters
+aux = c(grep("mu", dimnames(res13.2.3.4$summary)[[1]]), grep("ro", dimnames(res13.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res13.2.3.4$summary)[[1]]), grep("sSMR", dimnames(res13.2.3.4$summary)[[1]]))
+# Convergence assessment for the set of identifiable parameters in the model
+res13.2.3.4$summary[aux,"Rhat"][which(res13.2.3.4$summary[aux,"Rhat"]>1.1)]
+res13.2.3.4$summary[aux,"n.eff"][which(res13.2.3.4$summary[aux,"n.eff"]<100)]
+plot.deviance(res13.2.3.4)
+
+# Model 14.2.3.4
+#---------------
+res14.2.3.4$exec_time
+# Set of identifiable parameters
+aux = c(grep("mu", dimnames(res14.2.3.4$summary)[[1]]), grep("ro", dimnames(res14.2.3.4$summary)[[1]]), grep("sdstruct", dimnames(res14.2.3.4$summary)[[1]]), grep("sSMR", dimnames(res14.2.3.4$summary)[[1]]))
+# Convergence assessment for the set of identifiable parameters in the model
+res14.2.3.4$summary[aux,"Rhat"][which(res14.2.3.4$summary[aux,"Rhat"]>1.1)]
+res14.2.3.4$summary[aux,"n.eff"][which(res14.2.3.4$summary[aux,"n.eff"]<100)]
+plot.deviance(res14.2.3.4)
+
+# Model 1.23.3.4
+#---------------
+res1.23.3.4$exec_time
+# Set of identifiable parameters
+aux = c(grep("mu", dimnames(res1.23.3.4$summary)[[1]]), grep("gamma", dimnames(res1.23.3.4$summary)[[1]]), grep("sdstruct", dimnames(res1.23.3.4$summary)[[1]]), grep("sSMR", dimnames(res1.23.3.4$summary)[[1]]))
+# Convergence assessment for the set of identifiable parameters in the model
+res1.23.3.4$summary[aux,"Rhat"][which(res1.23.3.4$summary[aux,"Rhat"]>1.1)]
+res1.23.3.4$summary[aux,"n.eff"][which(res1.23.3.4$summary[aux,"n.eff"]<100)]
+plot.deviance(res1.23.3.4)
+
+# Model 1.24.3.4
+#---------------
+res1.24.3.4$exec_time
+# Set of identifiable parameters
+aux <- c(grep("mu", dimnames(res1.24.3.4$summary)[[1]]), grep("gamma", dimnames(res1.24.3.4$summary)[[1]]), grep("sdstruct", dimnames(res1.24.3.4$summary)[[1]]), grep("sSMR", dimnames(res1.24.3.4$summary)[[1]]))
+# Convergence assessment for the set of identifiable parameters in the model
+res1.24.3.4$summary[aux,"Rhat"][which(res1.24.3.4$summary[aux,"Rhat"]>1.1)]
+res1.24.3.4$summary[aux,"n.eff"][which(res1.24.3.4$summary[aux,"n.eff"]<100)]
+plot.deviance(res1.24.3.4)
+
+# Model 1.2.32.4
+#---------------
+res1.2.32.4$exec_time
+# Set of identifiable parameters
+aux = c(grep("mu", dimnames(res1.2.32.4$summary)[[1]]), grep("gamma", dimnames(res1.2.32.4$summary)[[1]]), grep("ro", dimnames(res1.2.32.4$summary)[[1]]), grep("sdstruct", dimnames(res1.2.32.4$summary)[[1]]), 
+    grep("sSMR", dimnames(res1.2.32.4$summary)[[1]]))
+# Convergence assessment for the set of identifiable parameters in the model
+res1.2.32.4$summary[aux,"Rhat"][which(res1.2.32.4$summary[aux,"Rhat"]>1.1)]
+res1.2.32.4$summary[aux,"n.eff"][which(res1.2.32.4$summary[aux,"n.eff"]<100)]
+plot.deviance(res1.2.32.4)
+
+# Model 1.2.34.4
+#---------------
+res1.2.34.4$exec_time
+# Set of identifiable parameters
+aux <- c(grep("mu", dimnames(res1.2.34.4$summary)[[1]]), grep("gamma", dimnames(res1.2.34.4$summary)[[1]]), grep("ro", dimnames(res1.2.34.4$summary)[[1]]), grep("sdstruct", dimnames(res1.2.34.4$summary)[[1]]), 
+    grep("sSMR", dimnames(res1.2.34.4$summary)[[1]]))
+# Convergence assessment for the set of identifiable parameters in the model
+res1.2.34.4$summary[aux,"Rhat"][which(res1.2.34.4$summary[aux,"Rhat"]>1.1)]
+res1.2.34.4$summary[aux,"n.eff"][which(res1.2.34.4$summary[aux,"n.eff"]<100)]
+plot.deviance(res1.2.34.4)
+
+# Model 1.2.3.42
+#---------------
+res1.2.3.42$exec_time
+# Set of identifiable parameters
+aux = c(grep("mu", dimnames(res1.2.3.42$summary)[[1]]), grep("gamma", dimnames(res1.2.3.42$summary)[[1]]), grep("ro", dimnames(res1.2.3.42$summary)[[1]]), grep("sdstruct", dimnames(res1.2.3.42$summary)[[1]]), 
+    grep("sSMR", dimnames(res1.2.3.42$summary)[[1]]))
+#Convergence assessment for the set of identifiable parameters in the model
+res1.2.3.42$summary[aux,"Rhat"][which(res1.2.3.42$summary[aux,"Rhat"]>1.1)]
+res1.2.3.42$summary[aux,"n.eff"][which(res1.2.3.42$summary[aux,"n.eff"]<100)]
+plot.deviance(res1.2.3.42)
+
+# Model 1.2.3.43
+#---------------
+res1.2.3.43$exec_time
+# Set of identifiable parameters
+aux = c(grep("mu", dimnames(res1.2.3.43$summary)[[1]]), grep("gamma", dimnames(res1.2.3.43$summary)[[1]]), grep("ro", dimnames(res1.2.3.43$summary)[[1]]), grep("sdstruct", dimnames(res1.2.3.43$summary)[[1]]), 
+    grep("sSMR", dimnames(res1.2.3.43$summary)[[1]]))
+# Convergence assessment for the set of identifiable parameters in the model
+res1.2.3.43$summary[aux,"Rhat"][which(res1.2.3.43$summary[aux,"Rhat"]>1.1)]
+res1.2.3.43$summary[aux,"n.eff"][which(res1.2.3.43$summary[aux,"n.eff"]<100)]
+plot.deviance(res1.2.3.43)
+```
+
+According to the convergence assessments above it would be surely worth to increase the number of MCMC iterations in order to achieve n.effs>100 and R-hats<1.1 for all the parameters in the model. Anyway, for the illustrative goals of the example and, because of the already long computing time of the current runs, we keep the current results for the rest of the example.  
+
+## Illustration of the MCMC performance for some non-identifable parameters in the model
+```{r}
+#History plots for the temporal correlation parameters for the 1.23.3.4 model, whose temporal dependence parameter varies as a function of the disease. 
+par(mfrow=c(1,2))
+#History plot for rho_1
+plot(res1.23.3.4$sims.array[,1,"ro[1]"],type="l")
+lines(res1.23.3.4$sims.array[,2,"ro[1]"],col=2)
+lines(res1.23.3.4$sims.array[,3,"ro[1]"],col=3)
+#History plot for rho_2
+plot(res1.23.3.4$sims.array[,1,"ro[2]"],type="l")
+lines(res1.23.3.4$sims.array[,2,"ro[2]"],col=2)
+lines(res1.23.3.4$sims.array[,3,"ro[2]"],col=3)
+
+#History plots for the spatial correlation parameters for the 1.2.32.4 model. 
+par(mfrow=c(1,1))
+#History plot for gamma
+plot(res1.2.32.4$sims.array[,1,"gamma"],type="l")
+lines(res1.2.32.4$sims.array[,2,"gamma"],col=2)
+lines(res1.2.32.4$sims.array[,3,"gamma"],col=3)
+```
+
+As it can be seen there seems to be two different temporal correlation parameters: one above 0.9 and a second one between 0.6 and 0.9. Nevertheless, these two parameters are switching their roles between $\rho_1$ and $\rho_2$. When one of these parameters is lower than 0.9 the other one is higher and vice-versa. Anyway these two parameters do not change their roles so frequently. This multimodality of$\rho_1$ and $\rho_2$ makes them to have an apparently defective convergence, anyway this issue should not have any impact on the sSMRs which would be combination of two different temporal processes, regardless of their order.
+
+On the other hand, the latest plot illustrates a history plot for the spatial correlation parameter of the multidimensional model. It can be appreciated how `WinBUGS` finds some problems (high autocorrelation) for sampling this parameter. Anyway, this apparently problematic performance should have a small impact in practice since the great majority of the values drawn are above 0.99 pointing all of them a very high spatial autocorrelation. Thus, the practical differences induced by these different values, taking values on a tiny range, should be small.
+
+## DIC computation for each of the models run
+```{r}
+DICPoisson(res1.2.3.4$sims.matrix[,grep("sSMR",dimnames(res1.2.3.4$sims.matrix)[[2]])],aperm(Obs.md,c(4,3,2,1)),aperm(Exp.md,c(4,3,2,1)))
+DICPoisson(res12.2.3.4$sims.matrix[,grep("sSMR",dimnames(res12.2.3.4$sims.matrix)[[2]])],aperm(Obs.md,c(4,3,2,1)),aperm(Exp.md,c(4,3,2,1)))
+DICPoisson(res13.2.3.4$sims.matrix[,grep("sSMR",dimnames(res13.2.3.4$sims.matrix)[[2]])],aperm(Obs.md,c(4,3,2,1)),aperm(Exp.md,c(4,3,2,1)))
+DICPoisson(res14.2.3.4$sims.matrix[,grep("sSMR",dimnames(res14.2.3.4$sims.matrix)[[2]])],aperm(Obs.md,c(4,3,2,1)),aperm(Exp.md,c(4,3,2,1)))
+DICPoisson(res1.23.3.4$sims.matrix[,grep("sSMR",dimnames(res1.23.3.4$sims.matrix)[[2]])],aperm(Obs.md,c(4,3,2,1)),aperm(Exp.md,c(4,3,2,1)))
+DICPoisson(res1.24.3.4$sims.matrix[,grep("sSMR",dimnames(res1.24.3.4$sims.matrix)[[2]])],aperm(Obs.md,c(4,3,2,1)),aperm(Exp.md,c(4,3,2,1)))
+DICPoisson(res1.2.32.4$sims.matrix[,grep("sSMR",dimnames(res1.2.32.4$sims.matrix)[[2]])],aperm(Obs.md,c(4,3,2,1)),aperm(Exp.md,c(4,3,2,1)))
+DICPoisson(res1.2.34.4$sims.matrix[,grep("sSMR",dimnames(res1.2.34.4$sims.matrix)[[2]])],aperm(Obs.md,c(4,3,2,1)),aperm(Exp.md,c(4,3,2,1)))
+DICPoisson(res1.2.3.42$sims.matrix[,grep("sSMR",dimnames(res1.2.3.42$sims.matrix)[[2]])],aperm(Obs.md,c(4,3,2,1)),aperm(Exp.md,c(4,3,2,1)))
+DICPoisson(res1.2.3.43$sims.matrix[,grep("sSMR",dimnames(res1.2.3.43$sims.matrix)[[2]])],aperm(Obs.md,c(4,3,2,1)),aperm(Exp.md,c(4,3,2,1)))
+```
+
+# Exploration of the results for the 1.2.3.4(2) model
+
+## Some summary statistics
+```{r}
+# Spatial dependence
+round(res1.2.3.42$summary["gamma",],3)
+# Temporal dependence
+round(res1.2.3.42$summary["ro",],3)
+
+# Dependence between diseases
+#----------------------------
+aux<-res1.2.3.42$sims.matrix[,c("structure3[1,1]","structure3[1,2]","structure3[2,1]","structure3[2,2]")]
+cors<-apply(aux,1,function(x){
+    mat<-matrix(x,ncol=2,byrow = TRUE)
+    cov2cor(t(mat)%*%mat)
+  })
+# Posterior mean
+matrix(apply(cors,1,mean),nrow=2)
+# 2.5% and 97.5% posterior quantiles
+quantile(cors[2,],c(0.025,0.975))
+
+# Dependence between sexes
+#-------------------------
+aux<-res1.2.3.42$sims.matrix[,grep("structure4",dimnames(res1.2.3.42$sims.matrix)[[2]])]
+aux.array<-array(dim=c(dim(aux)[1],2,2,5))
+for(i in 1:(dim(aux)[1])){
+  aux.array[i,,,]<-aperm(array(aux[i,],dim=c(5,2,2)),3:1)
+}
+#Period 1
+cors<-apply(aux.array,1,function(x,period){
+    mat<-x[,,period]
+    cov2cor(t(mat)%*%mat)[1,2]
+  },period=1)
+# Posterior mean
+mean(cors)
+# 2.5% and 97.5% posterior quantiles
+quantile(cors,c(0.025,0.975))
+
+#Period 2
+cors<-apply(aux.array,1,function(x,period){
+    mat<-x[,,period]
+    cov2cor(t(mat)%*%mat)[1,2]
+  },period=2)
+# Posterior mean
+mean(cors)
+# 2.5% and 97.5% posterior quantiles
+quantile(cors,c(0.025,0.975))
+
+#Period 3
+cors<-apply(aux.array,1,function(x,period){
+    mat<-x[,,period]
+    cov2cor(t(mat)%*%mat)[1,2]
+  },period=3)
+# Posterior mean
+mean(cors)
+# 2.5% and 97.5% posterior quantiles
+quantile(cors,c(0.025,0.975))
+
+#Period 4
+cors<-apply(aux.array,1,function(x,period){
+    mat<-x[,,period]
+    cov2cor(t(mat)%*%mat)[1,2]
+  },period=4)
+# Posterior mean
+mean(cors)
+# 2.5% and 97.5% posterior quantiles
+quantile(cors,c(0.025,0.975))
+
+#Period 5
+cors<-apply(aux.array,1,function(x,period){
+    mat<-x[ , , period]
+    cov2cor(t(mat)%*%mat)[1, 2]
+  }, period = 5)
+# Posterior mean
+mean(cors)
+# 2.5% and 97.5% posterior quantiles
+quantile(cors, c(0.025,0.975))
+```
+
+## Tables 9.1 and 9.2
+```{r}
+# Table 9.1
+#----------
+aux<-res1.2.3.42$sims.matrix[,grep("sSMR",dimnames(res1.2.3.42$sims.matrix)[[2]])]
+aux.array<-array(dim=c(dim(aux)[1],540,5,2,2))
+for(i in 1:(dim(aux)[1])){
+  aux.array[i,,,,]<-aperm(array(aux[i,],dim=c(2,2,5,540)),4:1)
+}
+
+cor.iter<-array(dim=c(dim(aux)[1],12,12))
+# Combinations of factors to include in Tables 9.1 and 9.2
+combinations<-rbind(c(1,1,1),c(3,1,1),c(5,1,1),c(1,1,2),c(3,1,2),c(5,1,2),c(1,2,1),c(3,2,1),c(5,2,1),c(1,2,2),c(3,2,2),c(5,2,2))
+for(i in 1:(dim(aux)[1])){
+  for(j in 1:12){
+    for(k in 1:12){
+      cor.iter[i,j,k]<-cor(aux.array[i,,combinations[j,1],combinations[j,2],combinations[j,3]], aux.array[i,,combinations[k,1],combinations[k,2],combinations[k,3]])
+    }
+  }
+}
+#Table 9.1
+round(apply(cor.iter,c(2,3),mean),2)
+
+# Table 9.2
+#----------
+aux<-res1.2.3.4$sims.matrix[,grep("sSMR",dimnames(res1.2.3.4$sims.matrix)[[2]])]
+aux.array<-array(dim=c(dim(aux)[1],540,5,2,2))
+for(i in 1:(dim(aux)[1])){
+  aux.array[i,,,,]<-aperm(array(aux[i,],dim=c(2,2,5,540)),4:1)
+}
+
+for(i in 1:(dim(aux)[1])){
+  for(j in 1:12){
+    for(k in 1:12){
+      cor.iter[i,j,k]<-cor(aux.array[i,,combinations[j,1],combinations[j,2],combinations[j,3]], aux.array[i,,combinations[k,1],combinations[k,2],combinations[k,3]])
+    }
+  }
+}
+#Table 9.2
+round(apply(cor.iter,c(2,3),mean),2)
+```
+
+## Figure 9.1
+```{r}
+#Temporal component for each combination of disease and sex
+T.i<-array(dim=c(dim(res1.2.3.42$sims.list$sSMR)[1],5,2,2))
+for(i in 1:dim(res1.2.3.42$sims.list$sSMR)[1]){
+  for(j in 1:2){
+    for(k in 1:2){
+      m<-mean(log(res1.2.3.42$sims.list$sSMR[i,,,j,k]/100))
+      T.i[i,,j,k]<-apply(log(res1.2.3.42$sims.list$sSMR[i,,,j,k]/100)-m,2,mean)    
+    }
+  }
+}
+T<-exp(apply(T.i,2:4,mean))
+
+# Figure 9.1
+plot(T[,1,1],type="b",pch=1, ylim=c(min(T),max(T)), xlab="Period",ylab="Risks time trend")
+lines(T[,1,2],type="b",pch=19)
+lines(T[,2,1],type="b",pch=2)
+lines(T[,2,2],type="b",pch=17)
+title("Model 1.2.3.4(2)")
+legend("topleft",c("Oral cancer - Men","Oral cancer - Women","Lung cancer - Men","Lung cancer - Women"), pch=c(1,19,2,17),bty="n")
+```
+
+## Choropleth maps 
+```{r}
+sSMRWithoutT.i<-array(dim=dim(res1.2.3.42$sims.list$sSMR))
+for(i in 1:dim(sSMRWithoutT.i)[1]){
+  for(j in 1:dim(sSMRWithoutT.i)[2]){
+    for(k in 1:dim(sSMRWithoutT.i)[3]){
+      for(l in 1:dim(sSMRWithoutT.i)[4]){
+        for(m in 1:dim(sSMRWithoutT.i)[5]){
+          sSMRWithoutT.i[i,j,k,l,m]<-res1.2.3.42$sims.list$sSMR[i,j,k,l,m]/exp(T.i[i,k,l,m])
+        }
+      }
+    }
+  }
+}
+sSMRWithoutT<-apply(sSMRWithoutT.i,2:5,mean)
+
+diseases<-c("Oral cancer","Lung cancer")
+sexes<-c("Men","Women")
+
+# Choropleth maps figure for men
+#-------------------------------
+colors<-brewer.pal(7,"BrBG")[7:1]
+cuts<-100*c(-0.1,1/1.5,1/1.25,1/1.1,1.1,1.25,1.5,100)
+par(mfrow=c(2,3))
+par(mar=c(0,0,1,0)+0.1)
+sex<-1
+for (dis in 1:2){
+   for (p in c(1,3,5)){
+     sSMRWithoutT.cut<-as.numeric(cut(sSMRWithoutT[,p,dis,sex],cuts))
+     plot(VR.cart,col=colors[sSMRWithoutT.cut],sub=paste("Period",p))
+     text(-0.5,37.5,paste("Period",p))
+     if(p==3){title(paste(diseases[dis],"-",sexes[sex]))}
+     if(p==5){
+       legend(x="bottomright",fill=colors[7:1], c(">150","125-150","110-125","91-110","80-91","66-80","<66"), cex=0.75, inset=0.03, bty="n")
+    }
+  }
+}
+
+# Choropleth maps figure for women
+#---------------------------------
+sex<-2
+par(mfrow=c(2,3))
+par(mar=c(0,0,1,0)+0.1)
+for (dis in 1:2){
+   for (p in c(1,3,5)){
+     sSMRWithoutT.cut<-as.numeric(cut(sSMRWithoutT[,p,dis,sex],cuts))
+     plot(VR.cart,col=colors[sSMRWithoutT.cut],sub=paste("Period",p))
+     if(p==3){title(paste(diseases[dis],"-",sexes[sex]))}
+     if(p==5){
+       legend(x="bottomright",fill=colors[7:1], c(">150","125-150","110-125","91-110","80-91","66-80","<66"), cex=0.75, inset=0.03, bty="n")
+    }
+  }
+}
 ```
 

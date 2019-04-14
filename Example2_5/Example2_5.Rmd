@@ -110,19 +110,19 @@ cor(RegLin2WB.uncentered2$sims.list$beta1,RegLin2WB.uncentered2$sims.list$beta2)
 ```{r Figure}
 par(mfrow = c(2, 2))
 plot(RegLin2WB$sims.array[, 1, 1], type = "l", main = expression(beta[1]), xlab = "Iteration", ylab = "Value")
-lines(RegLin2WB$sims.array[, 2, 1], type = "l", col = gray(0.33))
-lines(RegLin2WB$sims.array[, 3, 1], type = "l", col = gray(0.66))
+lines(RegLin2WB$sims.array[, 2, 1], type = "l", col = 2)
+lines(RegLin2WB$sims.array[, 3, 1], type = "l", col = 3)
 
 plot(RegLin2WB.uncentered$sims.array[, 1, 1], type = "l", main = expression(beta[1]), xlab = "Iteration", ylab = "Value", ylim = c(min(RegLin2WB.uncentered$sims.array[, , 1]), max(RegLin2WB.uncentered$sims.array[, , 1])))
-lines(RegLin2WB.uncentered$sims.array[, 2, 1], type = "l", col = gray(0.33))
-lines(RegLin2WB.uncentered$sims.array[, 3, 1], type = "l", col = gray(0.66))
+lines(RegLin2WB.uncentered$sims.array[, 2, 1], type = "l", col = 2)
+lines(RegLin2WB.uncentered$sims.array[, 3, 1], type = "l", col = 3)
 
 plot(RegLin2WB.uncentered2$sims.array[, 1, 1], type = "l", main = expression(beta[1]), xlab = "Iteration", ylab = "Value", ylim = c(min(RegLin2WB.uncentered2$sims.array[, , 1]), max(RegLin2WB.uncentered2$sims.array[, , 1])))
-lines(RegLin2WB.uncentered2$sims.array[, 2, 1], type = "l", col = gray(0.33))
-lines(RegLin2WB.uncentered2$sims.array[, 3, 1], type = "l", col = gray(0.66))
+lines(RegLin2WB.uncentered2$sims.array[, 2, 1], type = "l", col = 2)
+lines(RegLin2WB.uncentered2$sims.array[, 3, 1], type = "l", col = 3)
 
 plot(RegLin2WB.uncentered2$sims.array[, 1, 2], type = "l", main = expression(beta[2]), xlab = "Iteration", ylab = "Value", ylim = c(min(RegLin2WB.uncentered2$sims.array[, , 2]), max(RegLin2WB.uncentered2$sims.array[, , 2])))
-lines(RegLin2WB.uncentered2$sims.array[, 2, 2], type = "l", col = gray(0.33))
-lines(RegLin2WB.uncentered2$sims.array[, 3, 2], type = "l", col = gray(0.66))
+lines(RegLin2WB.uncentered2$sims.array[, 2, 2], type = "l", col = 2)
+lines(RegLin2WB.uncentered2$sims.array[, 3, 2], type = "l", col = 3)
 ```
 
